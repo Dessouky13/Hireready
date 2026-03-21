@@ -34,6 +34,7 @@ const LiveInterview = () => {
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const userSpeechBuffer = useRef("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const busyRef = useRef(false); // concurrency guard — prevents overlapping AI turns
 
   useEffect(() => {
     if (!id) return;
@@ -54,16 +55,23 @@ const LiveInterview = () => {
       userSpeechBuffer.current = data.text;
     },
     onCommittedTranscript: (data) => {
-      if (!data.text.trim() || aiSpeaking || processing) return;
+      if (!data.text.trim() || busyRef.current) return;
       const text = data.text.trim();
-      userSpeechBuffer.current = "";
+
+      // Accumulate speech segments — don't send each one individually
+      userSpeechBuffer.current = userSpeechBuffer.current
+        ? `${userSpeechBuffer.current} ${text}`
+        : text;
 
       setTranscript((prev) => [...prev, { role: "user", text }]);
 
+      // Reset the silence timer — send accumulated speech after 1.5s of silence
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = setTimeout(() => {
-        handleUserTurn(text);
-      }, 1200);
+        const accumulated = userSpeechBuffer.current.trim();
+        userSpeechBuffer.current = "";
+        if (accumulated) handleUserTurn(accumulated);
+      }, 1500);
     },
   });
 
@@ -105,20 +113,20 @@ const LiveInterview = () => {
   }, [ensureAudioContext]);
 
   const playBrowserTTS = useCallback((text: string): Promise<void> => {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       if (!window.speechSynthesis) {
-        reject(new Error("speechSynthesis not supported"));
+        resolve(); // gracefully degrade — text fallback will handle it
         return;
       }
-      // Cancel any pending speech
+      // Cancel any pending speech first
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.0;
+      utterance.rate = 1.05;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
-      // Try to pick a good English voice
+      // Pick best English voice available
       const voices = window.speechSynthesis.getVoices();
       const preferred = voices.find(
         (v) =>
@@ -128,7 +136,15 @@ const LiveInterview = () => {
       if (preferred) utterance.voice = preferred;
 
       utterance.onend = () => resolve();
-      utterance.onerror = (e) => reject(e);
+      // "interrupted" is expected when we cancel — never reject on it
+      utterance.onerror = (e) => {
+        if (e.error === "interrupted" || e.error === "canceled") {
+          resolve();
+        } else {
+          console.warn("Browser TTS error:", e.error);
+          resolve(); // still resolve — text fallback handles display
+        }
+      };
       window.speechSynthesis.speak(utterance);
     });
   }, []);
@@ -136,77 +152,23 @@ const LiveInterview = () => {
   const playTTS = useCallback(async (text: string): Promise<void> => {
     setAiSpeaking(true);
     setTextFallback(null);
+
+    // Go straight to browser speech synthesis (ElevenLabs TTS is blocked on free tier from cloud).
+    // This avoids the wasted 2-3s HTTP call that always returns 500.
     try {
-      const audioContext = await ensureAudioContext();
-      const { data: { session } } = await supabase.auth.getSession();
-      const authToken = session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/elevenlabs-tts-stream`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({ text }),
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`TTS failed: ${response.status}`);
-      }
-
-      const audioBuffer = await response.arrayBuffer();
-      if (audioBuffer.byteLength === 0) {
-        throw new Error("Empty audio response");
-      }
-
-      try {
-        const decoded = await audioContext.decodeAudioData(audioBuffer.slice(0));
-        await new Promise<void>((resolve) => {
-          const source = audioContext.createBufferSource();
-          source.buffer = decoded;
-          source.connect(audioContext.destination);
-          audioSourceRef.current = source;
-          source.onended = () => {
-            if (audioSourceRef.current === source) audioSourceRef.current = null;
-            resolve();
-          };
-          source.start(0);
-        });
-      } catch (decodeError) {
-        const audioBlob = new Blob([audioBuffer], { type: "audio/mpeg" });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-        audio.volume = 1.0;
-        audioRef.current = audio;
-
-        await new Promise<void>((resolve, reject) => {
-          audio.onended = () => { URL.revokeObjectURL(audioUrl); resolve(); };
-          audio.onerror = () => { URL.revokeObjectURL(audioUrl); reject(new Error("Audio playback failed")); };
-          audio.play().catch((e) => { URL.revokeObjectURL(audioUrl); reject(e); });
-        });
-      }
-    } catch (e) {
-      console.warn("ElevenLabs TTS failed, falling back to browser speech:", e);
-      // Fallback to browser's built-in speech synthesis
-      try {
-        await playBrowserTTS(text);
-      } catch (browserErr) {
-        console.error("Browser TTS also failed:", browserErr);
-        // Last resort — show text on screen
-        setTextFallback(text);
-        toast.error("Audio unavailable — question shown as text below.");
-      }
+      await playBrowserTTS(text);
+    } catch {
+      // Browser TTS failed — show text on screen as last resort
+      setTextFallback(text);
     } finally {
       setAiSpeaking(false);
-      audioRef.current = null;
     }
-  }, [ensureAudioContext, playBrowserTTS]);
+  }, [playBrowserTTS]);
 
   const callOrchestrator = useCallback(async (userMessage?: string) => {
+    // Concurrency guard — only one AI turn can run at a time
+    if (busyRef.current) return;
+    busyRef.current = true;
     setProcessing(true);
     try {
       const { data, error } = await supabase.functions.invoke("interview-orchestrator", {
@@ -214,7 +176,6 @@ const LiveInterview = () => {
       });
 
       if (error) {
-        // Handle insufficient credits — server deducts on first call
         if (error.message?.includes("insufficient_credits") || (error as any)?.context?.status === 402) {
           setInsufficientCredits(true);
           toast.error("Insufficient credits. Please buy more to continue.");
@@ -233,6 +194,7 @@ const LiveInterview = () => {
       toast.error("Failed to get next question. Please try again.");
     } finally {
       setProcessing(false);
+      busyRef.current = false;
     }
   }, [id, playTTS]);
 

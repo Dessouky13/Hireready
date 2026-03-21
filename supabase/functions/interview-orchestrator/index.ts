@@ -155,18 +155,23 @@ serve(async (req) => {
     const { interviewId, userMessage } = await req.json();
     if (!interviewId) throw new Error("interviewId is required");
 
-    // 0. Rate limiting — 20 requests per user per minute
-    const windowStart = new Date(Math.floor(Date.now() / 60000) * 60000).toISOString();
-    const { data: withinLimit } = await supabaseAdmin.rpc("increment_rate_limit", {
-      p_key: `orchestrator:${userId}`,
-      p_window_start: windowStart,
-      p_limit: 20,
-    });
-    if (!withinLimit) {
-      return new Response(
-        JSON.stringify({ error: "Too many requests. Please wait a moment." }),
-        { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    // 0. Rate limiting — 20 requests per user per minute (graceful — skip if table/function missing)
+    try {
+      const windowStart = new Date(Math.floor(Date.now() / 60000) * 60000).toISOString();
+      const { data: withinLimit, error: rlErr } = await supabaseAdmin.rpc("increment_rate_limit", {
+        p_key: `orchestrator:${userId}`,
+        p_window_start: windowStart,
+        p_limit: 20,
+      });
+      if (!rlErr && withinLimit === false) {
+        return new Response(
+          JSON.stringify({ error: "Too many requests. Please wait a moment." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (rlErr) console.warn("Rate limit check skipped:", rlErr.message);
+    } catch (rlCatchErr) {
+      console.warn("Rate limit function unavailable, skipping:", rlCatchErr);
     }
 
     // 1. Load interview and verify IDOR (ownership check)
@@ -207,20 +212,31 @@ serve(async (req) => {
       let cvSummary: string | null = null;
       if (interview.cv_url) {
         try {
-          const { data: fileData } = await supabaseAdmin.storage
+          console.log("Downloading CV from storage:", interview.cv_url);
+          const { data: fileData, error: dlErr } = await supabaseAdmin.storage
             .from("cvs")
             .download(interview.cv_url);
-          if (fileData) {
+          if (dlErr) {
+            console.error("CV download error:", dlErr.message);
+          } else if (fileData) {
             const buffer = await fileData.arrayBuffer();
+            console.log("CV file size:", buffer.byteLength, "bytes");
             const { text } = await extractText(new Uint8Array(buffer), { mergePages: true });
             cvSummary = text || null;
-            if (cvSummary && cvSummary.length > 4000) {
-              cvSummary = cvSummary.substring(0, 4000) + "\n...[truncated]";
+            if (cvSummary) {
+              console.log("CV text extracted, length:", cvSummary.length, "preview:", cvSummary.substring(0, 150));
+              if (cvSummary.length > 4000) {
+                cvSummary = cvSummary.substring(0, 4000) + "\n...[truncated]";
+              }
+            } else {
+              console.warn("CV extraction returned empty text — PDF may be image-based or encrypted");
             }
           }
         } catch (e) {
           console.error("CV parse failed:", e);
         }
+      } else {
+        console.log("No CV URL on interview record");
       }
 
       const { data: newState, error: createErr } = await supabaseAdmin
