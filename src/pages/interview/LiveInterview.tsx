@@ -1,23 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Mic, MicOff, PhoneOff, VolumeX } from "lucide-react";
+import { Mic, MicOff, PhoneOff, VolumeX, Sparkles, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { useScribe, CommitStrategy } from "@elevenlabs/react";
 import { supabase } from "@/integrations/supabase/client";
-import VoiceVisualizer from "@/components/interview/VoiceVisualizer";
+import AIOrb from "@/components/interview/AIOrb";
 import InterviewTopBar from "@/components/interview/InterviewTopBar";
 import { track, Events } from "@/lib/analytics";
 import { Link } from "react-router-dom";
 
 type TranscriptEntry = { role: "ai" | "user"; text: string };
-
-const PHASE_LABELS: Record<string, string> = {
-  opening: "Opening",
-  technical: "Technical Deep-dive",
-  behavioral: "Behavioral",
-  situational: "Situational",
-  closing: "Closing",
-};
 
 const LiveInterview = () => {
   const navigate = useNavigate();
@@ -333,143 +325,177 @@ const LiveInterview = () => {
   // Insufficient credits screen
   if (insufficientCredits) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-8 text-center">
-        <div className="neo-card max-w-md bg-coral/10 p-8">
-          <h2 className="mb-2 font-heading text-2xl font-bold text-coral">Out of Credits</h2>
-          <p className="mb-6 text-muted-foreground">
-            You need at least 1 credit to start an interview. Buy more credits to continue practicing.
-          </p>
-          <div className="flex flex-col gap-3">
-            <Link to="/pricing" className="neo-btn bg-primary text-primary-foreground w-full text-center">
-              Buy Credits
-            </Link>
-            <Link to="/dashboard" className="neo-btn bg-background text-foreground w-full text-center">
-              Back to Dashboard
-            </Link>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-ink p-8 text-center">
+        <div className="relative max-w-md overflow-hidden rounded-3xl border border-white/10 bg-white/[0.03] p-10 backdrop-blur-xl">
+          <div className="absolute -right-20 -top-20 h-40 w-40 rounded-full bg-coral/20 blur-[60px]" />
+          <div className="relative">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-coral/20">
+              <span className="text-3xl">💳</span>
+            </div>
+            <h2 className="mb-2 font-heading text-2xl font-bold text-white">Out of Credits</h2>
+            <p className="mb-8 font-body text-sm text-white/50">
+              You need at least 1 credit to start an interview. Buy more credits to continue practicing.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Link
+                to="/pricing"
+                className="flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 font-heading text-sm font-bold uppercase tracking-wide text-white transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25"
+              >
+                Buy Credits
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/dashboard"
+                className="flex items-center justify-center rounded-full border border-white/10 px-6 py-3 font-heading text-sm font-bold uppercase tracking-wide text-white/70 transition-all hover:bg-white/5"
+              >
+                Back to Dashboard
+              </Link>
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  // Derive orb state
+  const orbState: "idle" | "listening" | "thinking" | "speaking" = aiSpeaking
+    ? "speaking"
+    : processing
+    ? "thinking"
+    : interviewStarted
+    ? "listening"
+    : "idle";
+
   return (
-    <div className="flex h-screen flex-col bg-ink text-foreground">
+    <div className="flex h-screen flex-col overflow-hidden bg-ink">
+      {/* Ambient background blobs */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -left-40 top-1/4 h-80 w-80 rounded-full bg-primary/[0.07] blur-[100px]" />
+        <div className="absolute -right-40 top-1/3 h-72 w-72 rounded-full bg-purple/[0.06] blur-[100px]" />
+        <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-accent/[0.04] blur-[100px]" />
+      </div>
+
       <InterviewTopBar
         timeLeft={timeLeft}
         formatTime={formatTime}
         interviewStarted={interviewStarted}
         onEnd={handleEndInterview}
+        phase={currentPhase}
+        questionCount={questionCount}
       />
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-8 overflow-hidden px-4">
+      <div className="relative flex flex-1 flex-col items-center justify-center px-4">
         {!interviewStarted ? (
-          <div className="flex flex-col items-center gap-6 text-center">
-            <div className="flex h-32 w-32 items-center justify-center rounded-full bg-primary/20">
-              <Mic className="h-16 w-16 text-primary" />
-            </div>
-            <h1 className="font-heading text-3xl font-bold text-primary-foreground">
-              Ready for your interview?
-            </h1>
-            {interviewData && (
-              <p className="text-sm font-medium text-primary">
-                {interviewData.role} · {interviewData.level}
+          /* ─── PRE-INTERVIEW LOBBY ─── */
+          <div className="flex flex-col items-center gap-8 text-center animate-fadeUp">
+            <AIOrb state="idle" size={160} />
+
+            <div className="max-w-lg">
+              <h1 className="mb-2 font-heading text-3xl font-bold tracking-tight text-white md:text-4xl">
+                Ready when you are
+              </h1>
+              {interviewData && (
+                <div className="mb-3 flex items-center justify-center gap-2">
+                  <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-heading text-xs font-semibold uppercase tracking-wider text-primary">
+                    {interviewData.role}
+                  </span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 font-heading text-xs font-semibold uppercase tracking-wider text-white/50">
+                    {interviewData.level}
+                  </span>
+                </div>
+              )}
+              <p className="mx-auto max-w-sm font-body text-sm leading-relaxed text-white/40">
+                This is a real-time voice interview powered by AI. The interviewer adapts to your
+                answers — just like the real thing.
               </p>
-            )}
-            <p className="max-w-md text-sm text-primary-foreground/60">
-              This is a voice-only interview powered by advanced AI. The interviewer will adapt
-              questions based on your answers, just like a real interview.
-              {interviewData && " Your CV has been shared with the interviewer."}
-            </p>
+            </div>
+
             <button
               onClick={startConversation}
               disabled={isConnecting}
-              className="neo-btn bg-primary px-8 py-4 text-lg font-bold text-primary-foreground disabled:opacity-50"
+              className="group flex items-center gap-3 rounded-full bg-primary px-10 py-4 font-heading text-base font-bold uppercase tracking-wide text-white shadow-lg shadow-primary/25 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/30 disabled:opacity-50 disabled:shadow-none"
             >
-              {isConnecting ? "Connecting..." : "Join Interview"}
+              {isConnecting ? (
+                <>
+                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Connecting...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-5 w-5 transition-transform group-hover:scale-110" />
+                  Start Interview
+                </>
+              )}
             </button>
+
+            <p className="font-body text-[11px] text-white/25">
+              Make sure your microphone is enabled
+            </p>
           </div>
         ) : (
-          <div className="flex w-full max-w-4xl flex-1 flex-col items-center gap-6">
-            {/* Phase indicator */}
-            <div className="flex items-center gap-3">
-              <span className="rounded-md border border-foreground/20 bg-foreground/10 px-3 py-1 text-xs font-semibold text-primary-foreground/70">
-                {PHASE_LABELS[currentPhase] || currentPhase} · Q{questionCount}
-              </span>
-              {processing && (
-                <span className="text-xs text-primary-foreground/50 animate-pulse">Thinking...</span>
-              )}
-            </div>
-
-            {/* Participant cards */}
-            <div className="flex flex-1 items-center justify-center gap-8">
-              <div className="flex flex-col items-center gap-4">
-                <div
-                  className={`relative flex h-40 w-40 items-center justify-center rounded-full transition-all duration-300 ${
-                    aiSpeaking ? "bg-primary/30 ring-4 ring-primary ring-offset-4 ring-offset-ink" : "bg-foreground/10"
-                  }`}
-                >
-                  <span className="text-5xl">🤖</span>
-                  {aiSpeaking && <VoiceVisualizer isActive={true} color="primary" />}
-                </div>
-                <div className="text-center">
-                  <p className="font-heading text-sm font-bold text-primary-foreground">AI Interviewer</p>
-                  <p className="text-xs text-primary-foreground/50">
-                    {aiSpeaking ? "Speaking..." : processing ? "Thinking..." : "Listening"}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex flex-col items-center gap-4">
-                <div
-                  className={`relative flex h-40 w-40 items-center justify-center rounded-full transition-all duration-300 ${
-                    !aiSpeaking && !isMuted && !processing
-                      ? "bg-accent/30 ring-4 ring-accent ring-offset-4 ring-offset-ink"
-                      : "bg-foreground/10"
-                  }`}
-                >
-                  <span className="text-5xl">👤</span>
-                  {!aiSpeaking && !isMuted && !processing && (
-                    <VoiceVisualizer isActive={true} color="accent" />
-                  )}
-                </div>
-                <div className="text-center">
-                  <p className="font-heading text-sm font-bold text-primary-foreground">You</p>
-                  <p className="text-xs text-primary-foreground/50">
-                    {isMuted ? "Muted" : aiSpeaking ? "Waiting..." : processing ? "Waiting..." : "Your turn"}
-                  </p>
-                </div>
-              </div>
+          /* ─── LIVE INTERVIEW ─── */
+          <div className="flex w-full max-w-3xl flex-1 flex-col items-center justify-between gap-4 py-4">
+            {/* AI Orb — central focus */}
+            <div className="flex flex-1 flex-col items-center justify-center">
+              <AIOrb state={orbState} size={200} />
             </div>
 
             {/* TTS text fallback */}
             {textFallback && (
-              <div className="w-full max-w-2xl rounded-xl border-2 border-primary/30 bg-primary/10 p-4">
-                <div className="mb-1 flex items-center gap-2">
-                  <VolumeX className="h-4 w-4 text-primary" />
-                  <span className="text-xs font-bold text-primary">Audio unavailable — read the question below:</span>
+              <div className="w-full max-w-xl animate-fadeUp rounded-2xl border border-primary/20 bg-primary/[0.06] p-5 backdrop-blur-sm">
+                <div className="mb-2 flex items-center gap-2">
+                  <VolumeX className="h-4 w-4 text-primary/70" />
+                  <span className="font-heading text-[10px] font-bold uppercase tracking-wider text-primary/70">
+                    Audio unavailable — read below
+                  </span>
                 </div>
-                <p className="text-sm text-primary-foreground">{textFallback}</p>
+                <p className="font-body text-sm leading-relaxed text-white/80">{textFallback}</p>
               </div>
             )}
 
-            {/* Live transcript */}
-            <div className="w-full max-w-2xl rounded-xl bg-foreground/5 p-4">
-              <div className="max-h-32 overflow-y-auto">
-                {transcript.length === 0 ? (
-                  <p className="text-center text-xs text-primary-foreground/40">
-                    Live captions will appear here...
-                  </p>
-                ) : (
-                  transcript.slice(-4).map((t, i) => (
-                    <p key={i} className="mb-1 text-xs text-primary-foreground/70">
-                      <span className="font-bold text-primary-foreground/90">
-                        {t.role === "ai" ? "🤖 " : "You: "}
-                      </span>
-                      {t.text}
+            {/* Live transcript panel */}
+            <div className="w-full max-w-xl">
+              <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 backdrop-blur-sm">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="h-1 w-1 rounded-full bg-accent" />
+                  <span className="font-heading text-[10px] font-bold uppercase tracking-widest text-white/30">
+                    Transcript
+                  </span>
+                </div>
+                <div className="max-h-36 space-y-2 overflow-y-auto scrollbar-thin">
+                  {transcript.length === 0 ? (
+                    <p className="py-4 text-center font-body text-xs text-white/20">
+                      Conversation will appear here...
                     </p>
-                  ))
-                )}
-                <div ref={transcriptEndRef} />
+                  ) : (
+                    transcript.slice(-5).map((t, i) => (
+                      <div
+                        key={i}
+                        className={`flex gap-2 ${
+                          i === transcript.slice(-5).length - 1 ? "animate-fadeUp" : ""
+                        }`}
+                      >
+                        <span
+                          className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] ${
+                            t.role === "ai"
+                              ? "bg-primary/20 text-primary"
+                              : "bg-accent/20 text-accent"
+                          }`}
+                        >
+                          {t.role === "ai" ? "AI" : "Y"}
+                        </span>
+                        <p
+                          className={`font-body text-sm leading-relaxed ${
+                            t.role === "ai" ? "text-white/70" : "text-white/50"
+                          }`}
+                        >
+                          {t.text}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                  <div ref={transcriptEndRef} />
+                </div>
               </div>
             </div>
           </div>
@@ -478,22 +504,24 @@ const LiveInterview = () => {
 
       {/* Bottom controls */}
       {interviewStarted && (
-        <div className="flex items-center justify-center gap-4 border-t border-foreground/10 py-5">
+        <div className="relative z-10 flex items-center justify-center gap-5 border-t border-white/[0.06] bg-ink/80 py-5 backdrop-blur-xl">
           <button
             onClick={toggleMute}
-            className={`flex h-14 w-14 items-center justify-center rounded-full transition-colors ${
+            className={`flex h-14 w-14 items-center justify-center rounded-full transition-all ${
               isMuted
-                ? "bg-destructive text-destructive-foreground"
-                : "bg-foreground/10 text-primary-foreground hover:bg-foreground/20"
+                ? "bg-destructive/20 text-destructive ring-2 ring-destructive/30"
+                : "bg-white/[0.06] text-white/70 hover:bg-white/10 hover:text-white"
             }`}
+            title={isMuted ? "Unmute" : "Mute"}
           >
-            {isMuted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+            {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           </button>
           <button
             onClick={handleEndInterview}
-            className="flex h-14 w-20 items-center justify-center rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            className="flex h-14 w-24 items-center justify-center gap-2 rounded-full bg-destructive text-white font-heading text-xs font-bold uppercase tracking-wider transition-all hover:bg-destructive/90 hover:shadow-lg hover:shadow-destructive/25"
           >
-            <PhoneOff className="h-6 w-6" />
+            <PhoneOff className="h-4 w-4" />
+            End
           </button>
         </div>
       )}

@@ -86,7 +86,7 @@ ${arabicSection}
 INTERVIEW METHODOLOGY:
 
 PHASE DESCRIPTIONS:
-1. OPENING (1-2 questions): Warm-up questions. "Tell me about yourself", motivation for this role, career goals. Be warm and encouraging.
+1. OPENING (1-2 questions): Start with a WARM, PERSONALIZED welcome. If a CV is provided, reference something specific from it in your greeting (their recent company, a notable project, a key skill). Make the candidate feel like you've actually read their background. Then ask "Tell me about yourself", motivation for this role, or career goals. Be genuinely warm, friendly, and encouraging — like a real interviewer who's excited to meet them.
 2. TECHNICAL (4-6 questions): Role-specific technical/domain questions. Calibrate difficulty to ${level} level. If previous answer scored below 50, ask a simpler follow-up. If above 80, escalate difficulty.
 3. BEHAVIORAL (2-3 questions): Use the STAR method framework. Ask about leadership, conflict resolution, teamwork, failure handling.
 4. SITUATIONAL (1-2 questions): Present hypothetical scenarios relevant to the ${role} role at ${level} level.
@@ -280,9 +280,12 @@ serve(async (req) => {
     ];
 
     if (!userMessage || !userMessage.trim()) {
+      const cvHint = state.cv_summary
+        ? `The candidate's CV has been provided in the system prompt. In your greeting, reference 1-2 specific things from their CV (e.g., their most recent company/role, a notable skill, or a standout project) to show you've reviewed their background. Example: "Hi [implied name]! Thanks for joining me today. I've had a chance to look over your background — I see you've been working as a [Role] at [Company], and your experience with [specific tech/project] really caught my eye. I'm excited to learn more about your journey. Let's start with — tell me a bit about yourself and what drew you to this field."`
+        : "No CV was provided, so just give a friendly, warm greeting and ask a general opening question like 'Tell me about yourself'.";
       aiMessages.push({
         role: "user",
-        content: "The interview is starting now. Please greet the candidate warmly and ask your first opening question.",
+        content: `The interview is starting now. Please greet the candidate warmly and ask your first opening question.\n\nIMPORTANT: ${cvHint}`,
       });
     }
 
