@@ -16,6 +16,12 @@ dist-ssr
 .env
 .env.*
 
+# Supabase local temp
+supabase/.temp/
+
+# Scoop bucket (local tool)
+scoop-bucket-main/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

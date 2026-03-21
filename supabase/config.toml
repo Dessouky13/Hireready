@@ -1,4 +1,4 @@
-project_id = "bcwnluiqtacefpjgwjqz"
+project_id = "aawfizqhxluemkxmbaoq"
 
 [functions.get-stats]
 verify_jwt = false

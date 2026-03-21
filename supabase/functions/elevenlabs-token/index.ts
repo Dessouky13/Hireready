@@ -8,7 +8,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const agentId = "agent_9501kk894erbfhqsp9erm8qkpzxw";
+const agentId = "agent_3301km7gjj98fsjsn9x9ar8jpk0a";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
