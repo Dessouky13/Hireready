@@ -106,7 +106,40 @@ const LiveInterview = () => {
 
   const unlockAudio = useCallback(async () => {
     await ensureAudioContext();
+    // Preload browser speech voices for fallback TTS
+    if (window.speechSynthesis) {
+      window.speechSynthesis.getVoices();
+    }
   }, [ensureAudioContext]);
+
+  const playBrowserTTS = useCallback((text: string): Promise<void> => {
+    return new Promise<void>((resolve, reject) => {
+      if (!window.speechSynthesis) {
+        reject(new Error("speechSynthesis not supported"));
+        return;
+      }
+      // Cancel any pending speech
+      window.speechSynthesis.cancel();
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      // Try to pick a good English voice
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(
+        (v) =>
+          v.lang.startsWith("en") &&
+          (v.name.includes("Google") || v.name.includes("Microsoft") || v.name.includes("Samantha") || v.name.includes("Daniel"))
+      ) || voices.find((v) => v.lang.startsWith("en"));
+      if (preferred) utterance.voice = preferred;
+
+      utterance.onend = () => resolve();
+      utterance.onerror = (e) => reject(e);
+      window.speechSynthesis.speak(utterance);
+    });
+  }, []);
 
   const playTTS = useCallback(async (text: string): Promise<void> => {
     setAiSpeaking(true);
@@ -165,15 +198,21 @@ const LiveInterview = () => {
         });
       }
     } catch (e) {
-      console.error("TTS playback error:", e);
-      // Text fallback — never drop the user mid-interview
-      setTextFallback(text);
-      toast.error("Audio unavailable — question shown as text below.");
+      console.warn("ElevenLabs TTS failed, falling back to browser speech:", e);
+      // Fallback to browser's built-in speech synthesis
+      try {
+        await playBrowserTTS(text);
+      } catch (browserErr) {
+        console.error("Browser TTS also failed:", browserErr);
+        // Last resort — show text on screen
+        setTextFallback(text);
+        toast.error("Audio unavailable — question shown as text below.");
+      }
     } finally {
       setAiSpeaking(false);
       audioRef.current = null;
     }
-  }, [ensureAudioContext]);
+  }, [ensureAudioContext, playBrowserTTS]);
 
   const callOrchestrator = useCallback(async (userMessage?: string) => {
     setProcessing(true);
@@ -251,6 +290,7 @@ const LiveInterview = () => {
       audioSourceRef.current = null;
     }
     if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
 
     scribe.disconnect();
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);

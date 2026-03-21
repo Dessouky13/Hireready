@@ -54,6 +54,7 @@ serve(async (req) => {
   try {
     const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
     if (!ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY is not configured");
+    console.log("ElevenLabs key loaded, length:", ELEVENLABS_API_KEY.length, "prefix:", ELEVENLABS_API_KEY.substring(0, 5));
 
     const { text, voiceId } = await req.json();
     if (!text) throw new Error("text is required");
@@ -62,8 +63,11 @@ serve(async (req) => {
     const lang = detectLanguage(text);
     const voice = voiceId || (lang === "ar" ? VOICE_AR : VOICE_EN);
 
+    const ttsUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voice}/stream?output_format=mp3_44100_128`;
+    console.log("Calling TTS:", ttsUrl, "voice:", voice, "text length:", text.length);
+
     const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voice}/stream?output_format=mp3_44100_128`,
+      ttsUrl,
       {
         method: "POST",
         headers: {
@@ -86,8 +90,8 @@ serve(async (req) => {
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("ElevenLabs TTS error:", response.status, errText);
-      throw new Error(`TTS error: ${response.status}`);
+      console.error("ElevenLabs TTS error:", response.status, errText, "voice:", voice, "model: eleven_turbo_v2_5");
+      throw new Error(`TTS error: ${response.status} - ${errText.substring(0, 200)}`);
     }
 
     return new Response(response.body, {
