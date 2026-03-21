@@ -1,9 +1,20 @@
 -- Fix messages role constraint to allow 'assistant' (orchestrator inserts this)
-ALTER TABLE public.messages DROP CONSTRAINT IF EXISTS messages_role_check;
-ALTER TABLE public.messages ADD CONSTRAINT messages_role_check CHECK (role IN ('ai', 'user', 'assistant'));
+-- Requires: 20260309011028 migration (creates messages + interviews tables) to run first.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'messages') THEN
+    ALTER TABLE public.messages DROP CONSTRAINT IF EXISTS messages_role_check;
+    ALTER TABLE public.messages ADD CONSTRAINT messages_role_check CHECK (role IN ('ai', 'user', 'assistant'));
+  END IF;
+END $$;
 
 -- Add language column to interviews
-ALTER TABLE public.interviews ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en', 'ar'));
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'interviews') THEN
+    ALTER TABLE public.interviews ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'en' CHECK (language IN ('en', 'ar'));
+  END IF;
+END $$;
 
 -- Atomic credit deduction function (server-side only, prevents race conditions)
 CREATE OR REPLACE FUNCTION public.deduct_credit(p_user_id UUID)
