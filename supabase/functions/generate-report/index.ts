@@ -55,7 +55,7 @@ serve(async (req) => {
     // Fetch interview and verify ownership (IDOR prevention)
     const { data: interview, error: intErr } = await supabaseAdmin
       .from("interviews")
-      .select("role, level, user_id")
+      .select("role, level, user_id, cv_url")
       .eq("id", interviewId)
       .single();
 
@@ -80,27 +80,66 @@ serve(async (req) => {
       .map((m) => `${m.role === "assistant" ? "Interviewer" : "Candidate"}: ${m.content}`)
       .join("\n");
 
+    // Fetch interview state for CV summary and running scores (if available)
+    const { data: interviewState } = await supabaseAdmin
+      .from("interview_state")
+      .select("cv_summary, running_scores")
+      .eq("interview_id", interviewId)
+      .single();
+
+    const cvContext = interviewState?.cv_summary
+      ? `\n\nCANDIDATE CV/RESUME:\n${interviewState.cv_summary}\n\nUse this CV to evaluate whether the candidate's answers align with their stated experience. Note any gaps between what the CV claims and how the candidate performed.`
+      : "";
+
     // Call Google AI via FAL — use prompt-based JSON approach (FAL doesn't support tool calling)
     const prompt = `[SYSTEM]
-You are an expert interview coach analyzing a mock interview transcript. The candidate interviewed for the role of ${interview.role} at ${interview.level} level. Evaluate their performance thoroughly and provide actionable feedback.
+You are a world-class interview coach and career advisor providing a comprehensive performance report. The candidate just completed a mock interview for a ${interview.level} ${interview.role} position. Your job is to deliver MAXIMUM VALUE — be specific, cite exact quotes from the transcript, and give actionable advice they can use TODAY.
+${cvContext}
 
 [TRANSCRIPT]
 ${transcriptText}
 
 [INSTRUCTION]
-Analyze this interview transcript and generate a detailed performance report.
+Analyze every single answer in this transcript. For each scoring dimension, reference specific moments from the interview. Be brutally honest but constructive.
+
 Respond ONLY with a valid JSON object (no markdown, no code fences, no extra text). The JSON must have these exact fields:
-- "overall_score" (integer 0-100): Overall performance score
-- "comm_score" (integer 0-100): Communication skills score
-- "tech_score" (integer 0-100): Technical knowledge score
-- "conf_score" (integer 0-100): Confidence and composure score
-- "struct_score" (integer 0-100): Answer structure and organization score
-- "clarity_score" (integer 0-100): Clarity of expression score
-- "impact_score" (integer 0-100): Impact and persuasiveness score
-- "strengths" (array of 3-5 strings): Specific strengths observed
-- "weaknesses" (array of 3-5 strings): Specific areas for improvement
-- "feedback_text" (string): Detailed paragraph of overall feedback (3-5 sentences)
-- "roadmap" (array of 3-5 objects): Each with "title" (string), "desc" (string), "resource" (string) — actionable learning roadmap items`;
+
+- "overall_score" (integer 0-100): Weighted overall score. Be calibrated: 90+ is exceptional (top 5%), 70-89 is good, 50-69 needs work, below 50 is poor.
+
+- "comm_score" (integer 0-100): Communication — Did they speak clearly? Were answers concise or rambling? Did they use filler words excessively?
+
+- "tech_score" (integer 0-100): Technical/Domain Knowledge — Were their answers technically accurate? Did they demonstrate real depth or just surface knowledge?
+
+- "conf_score" (integer 0-100): Confidence & Composure — Did they sound confident? How did they handle difficult questions? Did they panic or stay composed?
+
+- "struct_score" (integer 0-100): Answer Structure — Did they use frameworks like STAR? Were answers logically organized or scattered?
+
+- "clarity_score" (integer 0-100): Clarity of Thought — Could you follow their reasoning? Did they answer the actual question asked?
+
+- "impact_score" (integer 0-100): Impact & Persuasiveness — Did they give concrete examples? Did they quantify results? Would you be convinced to hire them?
+
+- "strengths" (array of 3-5 objects, each with "title" and "detail"):
+  - "title": Short strength label (e.g., "Strong Technical Foundation")
+  - "detail": 2-3 sentences explaining this strength with a SPECIFIC example or quote from the interview. E.g., "When asked about system design, the candidate gave a thorough answer about microservices architecture, mentioning specific trade-offs like 'we chose event-driven because our write volume was 10x reads.' This shows real-world depth."
+
+- "weaknesses" (array of 3-5 objects, each with "title" and "detail" and "how_to_fix"):
+  - "title": Short weakness label (e.g., "Vague on Metrics")
+  - "detail": 2-3 sentences explaining the weakness with a specific example from the interview
+  - "how_to_fix": One concrete, actionable tip to fix this. E.g., "Before your next interview, prepare 3 stories where you can cite exact numbers: percentage improvements, team sizes, revenue impact, or time saved."
+
+- "feedback_text" (string): A thorough 5-8 sentence overall assessment. Start with what they did well. Then address the biggest improvement area. End with encouragement and a specific next step. Write as if you're a senior mentor giving candid but supportive feedback to a colleague. Reference specific moments from the interview.
+
+- "roadmap" (array of 4-6 objects): A personalized learning plan based on their ACTUAL weaknesses (not generic advice). Each with:
+  - "title": Action item title (e.g., "Master the STAR Method")
+  - "desc": 2-3 sentences explaining WHY this matters for them specifically and HOW to practice it. Reference their interview performance.
+  - "resource": A specific, real resource — e.g., "Book: 'Cracking the Coding Interview' by Gayle McDowell" or "Course: 'System Design Interview' on educative.io" or "YouTube: 'Interview tips by Jeff Su'" or "Practice: Do 5 mock behavioral questions using STAR format this week". Make these REAL and USEFUL, not generic links.
+
+QUALITY RULES:
+- Every strength and weakness MUST reference something specific the candidate actually said or did
+- Scores must be calibrated to real interview standards — don't inflate
+- Roadmap items must be personalized to THIS candidate's gaps, not generic advice
+- feedback_text should feel like advice from a mentor who watched the whole interview
+- If a CV was provided, note whether the candidate's performance matched their CV claims`;
 
     const aiResponse = await fetch(
       "https://fal.run/fal-ai/any-llm",

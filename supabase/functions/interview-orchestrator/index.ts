@@ -46,7 +46,13 @@ function buildSystemPrompt(
     : "No topics covered yet.";
 
   const cvSection = cvSummary
-    ? `\n\nCANDIDATE CV SUMMARY:\n${cvSummary}\n\nUse this CV to ask personalized questions about their specific experience, projects, and skills mentioned. Reference specific items from their CV.`
+    ? `\n\nCANDIDATE CV/RESUME:\n${cvSummary}\n\nCV-BASED INTERVIEWING (CRITICAL):
+You have the candidate's actual CV above. You MUST use it extensively throughout the interview:
+- In the OPENING phase, reference their most recent role or a notable achievement from the CV: "I see you worked at [Company] as a [Role] — tell me about that experience."
+- In the TECHNICAL phase, ask about specific technologies, projects, or tools listed on their CV: "Your CV mentions [specific project/tech] — can you walk me through how you implemented that?"
+- In the BEHAVIORAL phase, reference team sizes, leadership roles, or achievements from the CV: "You led a team of X people at [Company] — tell me about a time that was challenging."
+- If the candidate's answers contradict or don't align with their CV, gently probe: "Interesting — your CV mentions [X], could you elaborate on your role in that?"
+- Do NOT just read the CV back to them — use it to ask deeper, personalized questions that test whether they truly have the experience they claim.`
     : "\nNo CV provided. Ask general questions appropriate for the role and level.";
 
   const langInstruction = language === "ar"

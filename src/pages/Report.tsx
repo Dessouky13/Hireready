@@ -11,6 +11,17 @@ interface RoadmapItem {
   resource: string;
 }
 
+interface StrengthItem {
+  title: string;
+  detail: string;
+}
+
+interface WeaknessItem {
+  title: string;
+  detail: string;
+  how_to_fix: string;
+}
+
 interface ReportData {
   overall_score: number;
   comm_score: number;
@@ -19,8 +30,8 @@ interface ReportData {
   struct_score: number;
   clarity_score: number;
   impact_score: number;
-  strengths: string[];
-  weaknesses: string[];
+  strengths: (string | StrengthItem)[];
+  weaknesses: (string | WeaknessItem)[];
   feedback_text: string;
   roadmap: RoadmapItem[];
   created_at: string;
@@ -266,27 +277,55 @@ const Report = () => {
             <h3 className="mb-4 flex items-center gap-2 font-heading text-lg font-bold text-success">
               <CheckCircle className="h-5 w-5" /> Strengths
             </h3>
-            <ul className="space-y-2">
+            <div className="space-y-4">
               {report.strengths.map((s, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm">
-                  <span className="text-success">✓</span>
-                  {s}
-                </li>
+                <div key={i}>
+                  {typeof s === "string" ? (
+                    <div className="flex items-start gap-2 text-sm">
+                      <span className="text-success mt-0.5">✓</span>
+                      <span>{s}</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="flex items-start gap-2">
+                        <span className="text-success mt-0.5">✓</span>
+                        <span className="font-heading font-bold text-sm">{s.title}</span>
+                      </div>
+                      <p className="ml-6 text-sm text-muted-foreground leading-relaxed">{s.detail}</p>
+                    </div>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
           <div className="neo-card bg-coral/10 p-6">
             <h3 className="mb-4 flex items-center gap-2 font-heading text-lg font-bold text-coral">
               <AlertTriangle className="h-5 w-5" /> Areas to Improve
             </h3>
-            <ul className="space-y-2">
+            <div className="space-y-4">
               {report.weaknesses.map((w, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm">
-                  <span className="text-coral">⚠</span>
-                  {w}
-                </li>
+                <div key={i}>
+                  {typeof w === "string" ? (
+                    <div className="flex items-start gap-2 text-sm">
+                      <span className="text-coral mt-0.5">⚠</span>
+                      <span>{w}</span>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div className="flex items-start gap-2">
+                        <span className="text-coral mt-0.5">⚠</span>
+                        <span className="font-heading font-bold text-sm">{w.title}</span>
+                      </div>
+                      <p className="ml-6 text-sm text-muted-foreground leading-relaxed">{w.detail}</p>
+                      <div className="ml-6 mt-1 flex items-start gap-1.5 rounded-md bg-background/60 p-2">
+                        <span className="text-primary text-xs mt-0.5">💡</span>
+                        <p className="text-xs text-foreground/80 leading-relaxed">{w.how_to_fix}</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ))}
-            </ul>
+            </div>
           </div>
         </div>
 
