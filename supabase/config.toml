@@ -1,0 +1,19 @@
+project_id = "bcwnluiqtacefpjgwjqz"
+
+[functions.get-stats]
+verify_jwt = false
+
+[functions.elevenlabs-token]
+verify_jwt = true
+
+[functions.generate-report]
+verify_jwt = true
+
+[functions.interview-orchestrator]
+verify_jwt = true
+
+[functions.elevenlabs-tts-stream]
+verify_jwt = true
+
+[functions.elevenlabs-scribe-token]
+verify_jwt = true

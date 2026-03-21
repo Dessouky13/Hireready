@@ -1,0 +1,150 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 36 33% 94%;
+    --foreground: 240 33% 14%;
+
+    --card: 36 33% 94%;
+    --card-foreground: 240 33% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 33% 14%;
+
+    --primary: 231 97% 61%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 36 20% 91%;
+    --secondary-foreground: 240 33% 14%;
+
+    --muted: 36 20% 91%;
+    --muted-foreground: 240 10% 48%;
+
+    --accent: 78 89% 60%;
+    --accent-foreground: 240 33% 14%;
+
+    --destructive: 11 100% 62%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 161 100% 39%;
+    --success-foreground: 0 0% 100%;
+
+    --pink: 342 100% 73%;
+    --pink-foreground: 240 33% 14%;
+
+    --purple: 271 100% 74%;
+    --purple-foreground: 0 0% 100%;
+
+    --lime: 78 89% 60%;
+    --lime-foreground: 240 33% 14%;
+
+    --coral: 11 100% 62%;
+    --coral-foreground: 0 0% 100%;
+
+    --ink: 240 33% 14%;
+
+    --border: 240 33% 14%;
+    --input: 240 33% 14%;
+    --ring: 231 97% 61%;
+
+    --radius: 20px;
+
+    --sidebar-background: 36 20% 91%;
+    --sidebar-foreground: 240 33% 14%;
+    --sidebar-primary: 231 97% 61%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 78 89% 60%;
+    --sidebar-accent-foreground: 240 33% 14%;
+    --sidebar-border: 240 33% 14%;
+    --sidebar-ring: 231 97% 61%;
+  }
+
+  .dark {
+    --background: 240 33% 14%;
+    --foreground: 36 33% 94%;
+    --card: 240 20% 18%;
+    --card-foreground: 36 33% 94%;
+    --popover: 240 20% 18%;
+    --popover-foreground: 36 33% 94%;
+    --primary: 231 97% 61%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 20% 22%;
+    --secondary-foreground: 36 33% 94%;
+    --muted: 240 20% 22%;
+    --muted-foreground: 240 10% 60%;
+    --accent: 78 89% 60%;
+    --accent-foreground: 240 33% 14%;
+    --destructive: 11 100% 62%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 10% 30%;
+    --input: 240 10% 30%;
+    --ring: 231 97% 61%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading;
+  }
+}
+
+@layer components {
+  .neo-card {
+    @apply rounded-[20px] border-2 border-ink bg-card;
+    box-shadow: 5px 5px 0 hsl(var(--ink));
+  }
+  .neo-btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border-2 border-ink px-6 py-3 font-heading text-sm font-bold uppercase tracking-wide transition-all;
+    box-shadow: 4px 4px 0 hsl(var(--ink));
+  }
+  .neo-btn:hover {
+    transform: translate(-2px, -2px);
+    box-shadow: 6px 6px 0 hsl(var(--ink));
+  }
+  .neo-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 2px 2px 0 hsl(var(--ink));
+  }
+  .neo-badge {
+    @apply inline-flex items-center rounded-full border-2 border-ink px-3 py-1 font-heading text-xs font-bold uppercase;
+  }
+}
+
+@layer utilities {
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  .animate-fadeUp {
+    animation: fadeUp 0.6s ease-out both;
+  }
+  .animate-float {
+    animation: float 3s ease-in-out infinite;
+  }
+  .animate-blink {
+    animation: blink 1.5s ease-in-out infinite;
+  }
+  .animate-marquee {
+    animation: marquee 30s linear infinite;
+  }
+}
