@@ -80,7 +80,28 @@ serve(async (req) => {
       .map((m) => `${m.role === "assistant" ? "Interviewer" : "Candidate"}: ${m.content}`)
       .join("\n");
 
-    // Call Google AI directly
+    // Call Google AI via FAL — use prompt-based JSON approach (FAL doesn't support tool calling)
+    const prompt = `[SYSTEM]
+You are an expert interview coach analyzing a mock interview transcript. The candidate interviewed for the role of ${interview.role} at ${interview.level} level. Evaluate their performance thoroughly and provide actionable feedback.
+
+[TRANSCRIPT]
+${transcriptText}
+
+[INSTRUCTION]
+Analyze this interview transcript and generate a detailed performance report.
+Respond ONLY with a valid JSON object (no markdown, no code fences, no extra text). The JSON must have these exact fields:
+- "overall_score" (integer 0-100): Overall performance score
+- "comm_score" (integer 0-100): Communication skills score
+- "tech_score" (integer 0-100): Technical knowledge score
+- "conf_score" (integer 0-100): Confidence and composure score
+- "struct_score" (integer 0-100): Answer structure and organization score
+- "clarity_score" (integer 0-100): Clarity of expression score
+- "impact_score" (integer 0-100): Impact and persuasiveness score
+- "strengths" (array of 3-5 strings): Specific strengths observed
+- "weaknesses" (array of 3-5 strings): Specific areas for improvement
+- "feedback_text" (string): Detailed paragraph of overall feedback (3-5 sentences)
+- "roadmap" (array of 3-5 objects): Each with "title" (string), "desc" (string), "resource" (string) — actionable learning roadmap items`;
+
     const aiResponse = await fetch(
       "https://fal.run/fal-ai/any-llm",
       {
@@ -90,73 +111,8 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-flash-2.0",
-          messages: [
-            {
-              role: "system",
-              content: `You are an expert interview coach analyzing a mock interview transcript. The candidate interviewed for the role of ${interview.role} at ${interview.level} level. Evaluate their performance thoroughly and provide actionable feedback.`,
-            },
-            {
-              role: "user",
-              content: `Analyze this interview transcript and generate a detailed performance report:\n\n${transcriptText}`,
-            },
-          ],
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "generate_report",
-                description: "Generate a structured interview performance report.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    overall_score: { type: "integer", description: "Overall performance score 0-100" },
-                    comm_score: { type: "integer", description: "Communication skills score 0-100" },
-                    tech_score: { type: "integer", description: "Technical knowledge score 0-100" },
-                    conf_score: { type: "integer", description: "Confidence and composure score 0-100" },
-                    struct_score: { type: "integer", description: "Answer structure and organization score 0-100" },
-                    clarity_score: { type: "integer", description: "Clarity of expression score 0-100" },
-                    impact_score: { type: "integer", description: "Impact and persuasiveness score 0-100" },
-                    strengths: {
-                      type: "array",
-                      items: { type: "string" },
-                      description: "3-5 specific strengths observed",
-                    },
-                    weaknesses: {
-                      type: "array",
-                      items: { type: "string" },
-                      description: "3-5 specific areas for improvement",
-                    },
-                    feedback_text: {
-                      type: "string",
-                      description: "A detailed paragraph of overall feedback (3-5 sentences)",
-                    },
-                    roadmap: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          title: { type: "string" },
-                          desc: { type: "string" },
-                          resource: { type: "string" },
-                        },
-                        required: ["title", "desc", "resource"],
-                        additionalProperties: false,
-                      },
-                      description: "3-5 actionable learning roadmap items",
-                    },
-                  },
-                  required: [
-                    "overall_score", "comm_score", "tech_score", "conf_score",
-                    "struct_score", "clarity_score", "impact_score",
-                    "strengths", "weaknesses", "feedback_text", "roadmap",
-                  ],
-                  additionalProperties: false,
-                },
-              },
-            },
-          ],
-          tool_choice: { type: "function", function: { name: "generate_report" } },
+          model: "google/gemini-2.5-flash",
+          prompt: prompt,
         }),
       }
     );
@@ -173,12 +129,36 @@ serve(async (req) => {
     }
 
     const aiResult = await aiResponse.json();
-    const toolCall = aiResult.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
-      throw new Error("AI did not return structured output");
+    let rawOutput = (aiResult.output || "").trim();
+    console.log("Raw AI output length:", rawOutput.length, "first 200 chars:", rawOutput.substring(0, 200));
+    
+    // Robust JSON extraction — handle code fences, surrounding text, etc.
+    // Try stripping markdown code fences
+    const fenceMatch = rawOutput.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (fenceMatch) {
+      rawOutput = fenceMatch[1].trim();
+    }
+    // If still not starting with {, try to find the JSON object
+    if (!rawOutput.startsWith("{")) {
+      const jsonStart = rawOutput.indexOf("{");
+      const jsonEnd = rawOutput.lastIndexOf("}");
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        rawOutput = rawOutput.substring(jsonStart, jsonEnd + 1);
+      }
     }
 
-    const reportData = JSON.parse(toolCall.function.arguments);
+    let reportData;
+    try {
+      reportData = JSON.parse(rawOutput);
+    } catch (parseErr) {
+      console.error("Failed to parse AI output as JSON:", rawOutput.substring(0, 500));
+      throw new Error("AI did not return valid JSON");
+    }
+
+    if (!reportData.overall_score || !reportData.feedback_text) {
+      console.error("AI output missing required fields:", reportData);
+      throw new Error("AI output missing required fields");
+    }
 
     // Save report — await this to ensure it's written before returning
     const { data: savedReport, error: saveErr } = await supabaseAdmin

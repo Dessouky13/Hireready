@@ -272,6 +272,19 @@ serve(async (req) => {
       });
     }
 
+    // Build a single prompt string from system + conversation messages
+    const promptParts = aiMessages.map((m) =>
+      m.role === "system" ? `[SYSTEM]\n${m.content}` :
+      m.role === "assistant" ? `[INTERVIEWER]\n${m.content}` :
+      `[CANDIDATE]\n${m.content}`
+    );
+    promptParts.push(`\n[INSTRUCTION]\nRespond ONLY with a valid JSON object (no markdown, no code fences, no extra text). The JSON must have these fields:
+- "next_question" (string): Your next spoken question/response. Keep it natural and conversational (2-3 sentences max).
+- "phase" (string): One of ${JSON.stringify(PHASE_ORDER)}. The current or next interview phase.
+- "scores" (object): Scores for the candidate's last answer with keys: comm, tech, conf, struct, clarity, impact (each 0-100 integer). Use empty object {} if this is the first question.
+- "follow_up" (boolean): Whether this is a follow-up probe on the same topic.
+- "topic" (string): The topic/subject of this question.`);
+
     const aiResponse = await fetch(
       "https://fal.run/fal-ai/any-llm",
       {
@@ -281,54 +294,8 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-flash-2.0",
-          messages: aiMessages,
-          tools: [
-            {
-              type: "function",
-              function: {
-                name: "interview_turn",
-                description: "Return the next interviewer question along with scoring and phase tracking data.",
-                parameters: {
-                  type: "object",
-                  properties: {
-                    next_question: {
-                      type: "string",
-                      description: "The interviewer's next spoken response/question. Keep it natural and conversational.",
-                    },
-                    phase: {
-                      type: "string",
-                      enum: PHASE_ORDER,
-                      description: "The current or next interview phase.",
-                    },
-                    scores: {
-                      type: "object",
-                      properties: {
-                        comm: { type: "integer", description: "Communication score 0-100" },
-                        tech: { type: "integer", description: "Technical score 0-100" },
-                        conf: { type: "integer", description: "Confidence score 0-100" },
-                        struct: { type: "integer", description: "Structure score 0-100" },
-                        clarity: { type: "integer", description: "Clarity score 0-100" },
-                        impact: { type: "integer", description: "Impact score 0-100" },
-                      },
-                      description: "Scores for the candidate's last answer. Empty object if this is the first question.",
-                    },
-                    follow_up: {
-                      type: "boolean",
-                      description: "Whether this question is a follow-up probe on the same topic.",
-                    },
-                    topic: {
-                      type: "string",
-                      description: "The topic/subject of this question.",
-                    },
-                  },
-                  required: ["next_question", "phase", "scores", "follow_up", "topic"],
-                  additionalProperties: false,
-                },
-              },
-            },
-          ],
-          tool_choice: { type: "function", function: { name: "interview_turn" } },
+          model: "google/gemini-2.5-flash",
+          prompt: promptParts.join("\n\n"),
         }),
       }
     );
@@ -345,12 +312,35 @@ serve(async (req) => {
     }
 
     const aiResult = await aiResponse.json();
-    const toolCall = aiResult.choices?.[0]?.message?.tool_calls?.[0];
-    if (!toolCall?.function?.arguments) {
-      throw new Error("AI did not return structured output");
+    let rawOutput = (aiResult.output || "").trim();
+    console.log("Raw AI output length:", rawOutput.length, "first 200 chars:", rawOutput.substring(0, 200));
+    
+    // Robust JSON extraction — handle code fences, surrounding text, etc.
+    const fenceMatch = rawOutput.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (fenceMatch) {
+      rawOutput = fenceMatch[1].trim();
+    }
+    // If still not starting with {, try to find the JSON object
+    if (!rawOutput.startsWith("{")) {
+      const jsonStart = rawOutput.indexOf("{");
+      const jsonEnd = rawOutput.lastIndexOf("}");
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        rawOutput = rawOutput.substring(jsonStart, jsonEnd + 1);
+      }
     }
 
-    const turnData = JSON.parse(toolCall.function.arguments);
+    let turnData;
+    try {
+      turnData = JSON.parse(rawOutput);
+    } catch (parseErr) {
+      console.error("Failed to parse AI output as JSON:", rawOutput.substring(0, 500));
+      throw new Error("AI did not return valid JSON");
+    }
+
+    if (!turnData.next_question || !turnData.phase) {
+      console.error("AI output missing required fields:", turnData);
+      throw new Error("AI output missing required fields");
+    }
 
     // 7. Save AI question to messages
     await supabaseAdmin.from("messages").insert({
