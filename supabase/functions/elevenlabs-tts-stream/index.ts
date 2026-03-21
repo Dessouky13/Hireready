@@ -4,6 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const ALLOWED_ORIGINS = [
   "https://hireready.coach",
   "https://www.hireready.coach",
+  "https://hireready-one.vercel.app",
   "http://localhost:5173",
   "http://localhost:8080",
 ];

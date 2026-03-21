@@ -5,6 +5,7 @@ import { extractText } from "npm:unpdf@0.12.1";
 const ALLOWED_ORIGINS = [
   "https://hireready.coach",
   "https://www.hireready.coach",
+  "https://hireready-one.vercel.app",
   "http://localhost:5173",
   "http://localhost:8080",
 ];
