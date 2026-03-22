@@ -1,12 +1,42 @@
-import { Mic, FileText, Flame, BarChart3, Map, Share2 } from "lucide-react";
+import { Mic, FileText, BarChart3, Share2, MessageSquare, Globe } from "lucide-react";
 
 const features = [
-  { icon: Mic, title: "Live Voice Interview", desc: "Talk naturally with speech-to-text. No typing needed.", color: "text-primary" },
-  { icon: FileText, title: "CV-Aware Questions", desc: "AI reads your resume and tailors every question to your background.", color: "text-lime" },
-  { icon: Flame, title: "Pressure Mode", desc: "Get challenged with tough follow-ups when your answers are vague.", color: "text-coral" },
-  { icon: BarChart3, title: "6-Dimension Score", desc: "Communication, Technical, Confidence, Structure, Clarity, Impact.", color: "text-purple" },
-  { icon: Map, title: "Learning Roadmap", desc: "Personalized next steps with resources to close your skill gaps.", color: "text-success" },
-  { icon: Share2, title: "Shareable Score Card", desc: "Show off your interview score to recruiters and mentors.", color: "text-pink" },
+  {
+    icon: Mic,
+    title: "Live Voice Interview",
+    desc: "Hold to speak, release to send. Powered by OpenAI Whisper for accurate transcription even with accents.",
+    color: "text-primary",
+  },
+  {
+    icon: FileText,
+    title: "CV-Aware Questions",
+    desc: "Upload your resume and the AI will reference your real experience, projects, and companies throughout.",
+    color: "text-lime",
+  },
+  {
+    icon: MessageSquare,
+    title: "5-Phase Structure",
+    desc: "Opening → Technical → Behavioral → Situational → Closing. A complete real-world interview every time.",
+    color: "text-coral",
+  },
+  {
+    icon: BarChart3,
+    title: "6-Dimension Scoring",
+    desc: "Scored on Communication, Technical, Confidence, Structure, Clarity, and Impact after every answer.",
+    color: "text-purple",
+  },
+  {
+    icon: Share2,
+    title: "Shareable Score Card",
+    desc: "Download or share your performance card with recruiters, mentors, or your LinkedIn profile.",
+    color: "text-success",
+  },
+  {
+    icon: Globe,
+    title: "Arabic & English",
+    desc: "Practice in English or Arabic. The AI interviewer adapts language, tone, and questions accordingly.",
+    color: "text-pink",
+  },
 ];
 
 const Features = () => {
@@ -17,7 +47,7 @@ const Features = () => {
           Everything you need to ace it
         </h2>
         <p className="mx-auto mb-12 max-w-lg text-center text-primary-foreground/60">
-          Built for real interview prep, not generic quiz apps.
+          Built for real interview prep — not generic quiz apps.
         </p>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {features.map((f) => (

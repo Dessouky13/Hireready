@@ -10,9 +10,13 @@ import { Link } from "react-router-dom";
 
 type TranscriptEntry = { role: "ai" | "user"; text: string };
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
+
 const LiveInterview = () => {
   const navigate = useNavigate();
   const { id } = useParams();
+
   const [isConnecting, setIsConnecting] = useState(false);
   const [timeLeft, setTimeLeft] = useState(900);
   const [interviewStarted, setInterviewStarted] = useState(false);
@@ -36,9 +40,10 @@ const LiveInterview = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const mediaStreamRef = useRef<MediaStream | null>(null);
-  const firstCallDoneRef = useRef(false); // tracks whether the AI has spoken at least once
+  const firstCallDoneRef = useRef(false);
   const handleUserTurnRef = useRef<(text: string) => Promise<void>>();
 
+  // ── Load interview metadata ──
   useEffect(() => {
     if (!id) return;
     supabase
@@ -46,53 +51,36 @@ const LiveInterview = () => {
       .select("role, level")
       .eq("id", id)
       .single()
-      .then(({ data }) => {
-        if (data) setInterviewData(data);
-      });
+      .then(({ data }) => { if (data) setInterviewData(data); });
   }, [id]);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [transcript]);
 
+  // ── Interview timer ──
   useEffect(() => {
     if (!interviewStarted) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleEndInterview();
-          return 0;
-        }
+        if (prev <= 1) { clearInterval(timer); handleEndInterview(); return 0; }
         return prev - 1;
       });
     }, 1000);
     return () => clearInterval(timer);
   }, [interviewStarted]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Spacebar PTT listeners
+  // ── Spacebar PTT ──
   useEffect(() => {
     if (!interviewStarted) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space" && !e.repeat) {
-        e.preventDefault();
-        startPTT();
-      }
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        e.preventDefault();
-        stopPTT();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
+    const down = (e: KeyboardEvent) => { if (e.code === "Space" && !e.repeat) { e.preventDefault(); startPTT(); } };
+    const up   = (e: KeyboardEvent) => { if (e.code === "Space") { e.preventDefault(); stopPTT(); } };
+    window.addEventListener("keydown", down);
+    window.addEventListener("keyup",   up);
+    return () => { window.removeEventListener("keydown", down); window.removeEventListener("keyup", up); };
   }, [interviewStarted]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── AudioContext helper ──
   const ensureAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
       audioContextRef.current = new AudioContext({ latencyHint: "interactive" });
@@ -103,22 +91,20 @@ const LiveInterview = () => {
     return audioContextRef.current;
   }, []);
 
+  // ── Browser TTS fallback ──
   const playBrowserTTS = useCallback((text: string): Promise<void> => {
     return new Promise<void>((resolve) => {
       if (!window.speechSynthesis) { resolve(); return; }
       window.speechSynthesis.cancel();
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.05;
+      utterance.rate = 1.0;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
+      // Pick best English voice available
       const voices = window.speechSynthesis.getVoices();
       const preferred =
-        voices.find(
-          (v) =>
-            v.lang.startsWith("en") &&
-            (v.name.includes("Google") || v.name.includes("Microsoft") ||
-              v.name.includes("Samantha") || v.name.includes("Daniel"))
-        ) || voices.find((v) => v.lang.startsWith("en"));
+        voices.find((v) => v.lang.startsWith("en") && (v.name.includes("Google") || v.name.includes("Microsoft") || v.name.includes("Samantha") || v.name.includes("Daniel"))) ||
+        voices.find((v) => v.lang.startsWith("en"));
       if (preferred) utterance.voice = preferred;
       utterance.onend = () => resolve();
       utterance.onerror = (e) => {
@@ -129,27 +115,34 @@ const LiveInterview = () => {
     });
   }, []);
 
-  // TTS: try ElevenLabs edge function, fall back to browser speech synthesis
+  // ── Primary TTS: OpenAI → fallback to browser ──
   const playTTS = useCallback(async (text: string): Promise<void> => {
-    setAiSpeaking(true);
     setTextFallback(null);
+
     try {
       const session = await supabase.auth.getSession();
       const token = session.data.session?.access_token;
       if (!token) throw new Error("No auth token");
 
-      const res = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/elevenlabs-tts-stream`,
-        {
+      // Abort if TTS takes > 10s (prevents stuck "speaking" state)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10_000);
+
+      let res: Response;
+      try {
+        res = await fetch(`${SUPABASE_URL}/functions/v1/openai-tts`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+            apikey: SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({ text }),
-        }
-      );
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!res.ok) throw new Error(`TTS ${res.status}`);
 
@@ -161,12 +154,16 @@ const LiveInterview = () => {
       source.connect(audioCtx.destination);
       audioSourceRef.current = source;
 
+      // Only mark as "speaking" once audio is actually about to play
+      setAiSpeaking(true);
       await new Promise<void>((resolve) => {
         source.onended = () => { audioSourceRef.current = null; resolve(); };
         source.start(0);
       });
-    } catch {
-      // ElevenLabs unavailable — use browser TTS
+    } catch (e) {
+      // OpenAI TTS failed — fall back to browser speech synthesis
+      console.warn("OpenAI TTS failed, using browser TTS:", (e as Error).message);
+      setAiSpeaking(true); // still animate the orb
       try {
         await playBrowserTTS(text);
       } catch {
@@ -177,36 +174,56 @@ const LiveInterview = () => {
     }
   }, [ensureAudioContext, playBrowserTTS]);
 
+  // ── Orchestrator call ──
   const callOrchestrator = useCallback(async (userMessage?: string) => {
     if (busyRef.current) return;
     busyRef.current = true;
     setProcessing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("interview-orchestrator", {
-        body: { interviewId: id, userMessage: userMessage || "" },
-      });
 
-      if (error) {
-        if (
-          error.message?.includes("insufficient_credits") ||
-          (error as any)?.context?.status === 402
-        ) {
+    try {
+      // 30s timeout — prevents infinite "interview in progress" if the AI hangs
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30_000);
+
+      let data: { next_question: string; phase: string; question_count: number; follow_up: boolean; topic: string } | null = null;
+      let invokeError: unknown = null;
+
+      try {
+        const result = await supabase.functions.invoke("interview-orchestrator", {
+          body: { interviewId: id, userMessage: userMessage || "" },
+        });
+        data = result.data;
+        invokeError = result.error;
+      } finally {
+        clearTimeout(timeout);
+      }
+
+      if (invokeError) {
+        const err = invokeError as { message?: string; context?: { status?: number } };
+        if (err.message?.includes("insufficient_credits") || err.context?.status === 402) {
           setInsufficientCredits(true);
           toast.error("Insufficient credits. Please buy more to continue.");
           return;
         }
-        throw error;
+        throw new Error(err.message || "Orchestrator error");
       }
-      if (!data?.next_question) throw new Error("No question returned");
+      if (!data?.next_question) throw new Error("No question returned from AI");
 
       firstCallDoneRef.current = true;
       setCurrentPhase(data.phase || "opening");
       setQuestionCount(data.question_count || 0);
-      setTranscript((prev) => [...prev, { role: "ai", text: data.next_question }]);
+      setTranscript((prev) => [...prev, { role: "ai", text: data!.next_question }]);
+
+      // Play TTS — this sets aiSpeaking true only when audio is ready
       await playTTS(data.next_question);
     } catch (e) {
       console.error("Orchestrator error:", e);
-      toast.error("Failed to get next question. Please try again.");
+      const msg = (e as Error).message;
+      if (msg?.includes("aborted") || msg?.includes("abort")) {
+        toast.error("Interview took too long to respond. Please try again.");
+      } else {
+        toast.error("Failed to get next question. Please try again.");
+      }
     } finally {
       setProcessing(false);
       busyRef.current = false;
@@ -217,15 +234,10 @@ const LiveInterview = () => {
     await callOrchestrator(text);
   }, [callOrchestrator]);
 
-  // Keep ref in sync for use inside async callbacks
-  useEffect(() => {
-    handleUserTurnRef.current = handleUserTurn;
-  }, [handleUserTurn]);
+  useEffect(() => { handleUserTurnRef.current = handleUserTurn; }, [handleUserTurn]);
 
-  // ─── PTT: record audio while held, send to Whisper on release ───
-
+  // ── PTT: start recording ──
   const startPTT = useCallback(() => {
-    // Block if AI is still mid-response or already recording
     if (busyRef.current || isTranscribing || isPTTActiveRef.current) return;
 
     // Interrupt AI speech
@@ -237,12 +249,8 @@ const LiveInterview = () => {
     setAiSpeaking(false);
 
     const stream = mediaStreamRef.current;
-    if (!stream) {
-      toast.error("Microphone not available");
-      return;
-    }
+    if (!stream) { toast.error("Microphone not available"); return; }
 
-    // Choose best supported MIME type
     const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
       : MediaRecorder.isTypeSupported("audio/webm")
@@ -251,16 +259,15 @@ const LiveInterview = () => {
 
     audioChunksRef.current = [];
     const recorder = new MediaRecorder(stream, { mimeType });
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) audioChunksRef.current.push(e.data);
-    };
-    recorder.start(100); // collect chunks every 100ms
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+    recorder.start(100);
     mediaRecorderRef.current = recorder;
 
     isPTTActiveRef.current = true;
     setIsPTTActive(true);
   }, [isTranscribing]);
 
+  // ── PTT: stop recording → Whisper ──
   const stopPTT = useCallback(() => {
     if (!isPTTActiveRef.current) return;
     isPTTActiveRef.current = false;
@@ -276,8 +283,7 @@ const LiveInterview = () => {
       const blob = new Blob(audioChunksRef.current, { type: mimeType });
       audioChunksRef.current = [];
 
-      // Ignore very short clips (< 0.5s, < 5kb) — probably accidental presses
-      if (blob.size < 5000) return;
+      if (blob.size < 3000) return; // too short — ignore
 
       setIsTranscribing(true);
       try {
@@ -289,22 +295,13 @@ const LiveInterview = () => {
         const formData = new FormData();
         formData.append("audio", blob, `recording.${ext}`);
 
-        const res = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whisper-transcribe`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-            },
-            body: formData,
-          }
-        );
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-transcribe`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, apikey: SUPABASE_ANON_KEY },
+          body: formData,
+        });
 
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`Transcription failed: ${res.status} ${errText}`);
-        }
+        if (!res.ok) throw new Error(`Transcription failed: ${res.status}`);
 
         const { text } = await res.json();
         if (text?.trim()) {
@@ -316,7 +313,7 @@ const LiveInterview = () => {
           toast.info("Couldn't hear you clearly — please try again.");
         }
       } catch (e) {
-        console.error("Whisper transcription error:", e);
+        console.error("Whisper error:", e);
         toast.error("Could not transcribe your speech. Please try again.");
       } finally {
         setIsTranscribing(false);
@@ -326,41 +323,45 @@ const LiveInterview = () => {
     recorder.stop();
   }, []);
 
+  // ── Start interview ──
   const startConversation = useCallback(async () => {
     setIsConnecting(true);
     try {
-      // Get mic stream and hold it open for the whole interview
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Mic + AudioContext in parallel
+      const [stream] = await Promise.all([
+        navigator.mediaDevices.getUserMedia({ audio: true }),
+        ensureAudioContext(),
+      ]);
       mediaStreamRef.current = stream;
-      await ensureAudioContext();
 
-      // Credit check
-      const { error: creditCheckErr } = await supabase.functions.invoke("elevenlabs-scribe-token");
-      if (creditCheckErr?.message?.includes("insufficient_credits")) {
-        setInsufficientCredits(true);
-        toast.error("Insufficient credits. Please buy more credits to start.");
-        stream.getTracks().forEach((t) => t.stop());
-        return;
-      }
+      // Pre-warm speech synthesis voices while connecting
+      if (window.speechSynthesis) window.speechSynthesis.getVoices();
 
       setInterviewStarted(true);
-      toast.success("Connected! Your interview is starting...");
+      // Kick off the first AI call — no extra credit-check roundtrip needed
+      // (orchestrator handles credit deduction on first call and returns 402 if insufficient)
       await callOrchestrator();
     } catch (error) {
-      console.error("Failed to start conversation:", error);
-      toast.error("Failed to connect. Please check microphone permissions.");
+      const msg = (error as Error).message;
+      if (msg?.includes("Permission") || msg?.includes("NotAllowed") || msg?.includes("NotFound")) {
+        toast.error("Microphone access denied. Please allow microphone and try again.");
+      } else {
+        toast.error("Failed to start. Please check your microphone and try again.");
+      }
+      console.error("startConversation error:", error);
     } finally {
       setIsConnecting(false);
     }
   }, [callOrchestrator, ensureAudioContext]);
 
+  // ── End interview ──
   const handleEndInterview = useCallback(async () => {
     if (endingRef.current) return;
     endingRef.current = true;
 
     if (audioSourceRef.current) {
-      try { audioSourceRef.current.stop(); } catch { /* already ended */ }
-      audioSourceRef.current.disconnect();
+      try { audioSourceRef.current.stop(); } catch { /* ok */ }
+      try { audioSourceRef.current.disconnect(); } catch { /* ok */ }
       audioSourceRef.current = null;
     }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
@@ -374,7 +375,7 @@ const LiveInterview = () => {
     }
 
     track(Events.INTERVIEW_COMPLETED, { phase: currentPhase, questionCount });
-    toast.success("Great work! Processing results...");
+    toast.success("Great work! Generating your report...");
 
     if (id) {
       try {
@@ -385,9 +386,7 @@ const LiveInterview = () => {
 
         supabase.functions
           .invoke("generate-report", { body: { interviewId: id } })
-          .then(({ error: reportErr }) => {
-            if (reportErr) console.error("Report generation failed:", reportErr);
-          });
+          .then(({ error: e }) => { if (e) console.error("Report generation failed:", e); });
       } catch (e) {
         console.error("End interview error:", e);
       }
@@ -402,24 +401,26 @@ const LiveInterview = () => {
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // ─── Status label logic ───
-  const statusLabel = (() => {
-    if (processing && !firstCallDoneRef.current) return "Your interview is starting, please wait...";
-    if (isTranscribing) return "Transcribing your answer...";
-    if (processing) return "AI is thinking...";
-    if (aiSpeaking) return "Interviewer is speaking...";
-    if (isPTTActive) return "Listening — release to send";
-    return "Hold SPACE or the mic button to speak";
-  })();
+  // ── Status label ──
+  const statusLabel = processing && !firstCallDoneRef.current
+    ? "Your interview is starting, please wait..."
+    : isTranscribing
+    ? "Transcribing your answer..."
+    : processing
+    ? "AI is thinking..."
+    : aiSpeaking
+    ? "Interviewer is speaking..."
+    : isPTTActive
+    ? "Listening — release to send"
+    : "Hold SPACE or the mic button to speak";
 
-  // ─── Orb state ───
   const orbState: "idle" | "listening" | "thinking" | "speaking" =
     aiSpeaking ? "speaking"
     : processing || isTranscribing ? "thinking"
     : isPTTActive ? "listening"
     : "idle";
 
-  // Insufficient credits screen
+  // ── Insufficient credits screen ──
   if (insufficientCredits) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-ink p-8 text-center">
@@ -431,19 +432,13 @@ const LiveInterview = () => {
             </div>
             <h2 className="mb-2 font-heading text-2xl font-bold text-white">Out of Credits</h2>
             <p className="mb-8 font-body text-sm text-white/50">
-              You need at least 1 credit to start an interview. Buy more credits to continue practicing.
+              You need at least 1 credit to start an interview.
             </p>
             <div className="flex flex-col gap-3">
-              <Link
-                to="/pricing"
-                className="flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 font-heading text-sm font-bold uppercase tracking-wide text-white transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25"
-              >
+              <Link to="/pricing" className="flex items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 font-heading text-sm font-bold uppercase tracking-wide text-white transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25">
                 Buy Credits <ArrowRight className="h-4 w-4" />
               </Link>
-              <Link
-                to="/dashboard"
-                className="flex items-center justify-center rounded-full border border-white/10 px-6 py-3 font-heading text-sm font-bold uppercase tracking-wide text-white/70 transition-all hover:bg-white/5"
-              >
+              <Link to="/dashboard" className="flex items-center justify-center rounded-full border border-white/10 px-6 py-3 font-heading text-sm font-bold uppercase tracking-wide text-white/70 transition-all hover:bg-white/5">
                 Back to Dashboard
               </Link>
             </div>
@@ -476,7 +471,6 @@ const LiveInterview = () => {
           /* ─── PRE-INTERVIEW LOBBY ─── */
           <div className="flex flex-col items-center gap-8 text-center animate-fadeUp">
             <AIOrb state="idle" size={160} />
-
             <div className="max-w-lg">
               <h1 className="mb-2 font-heading text-3xl font-bold tracking-tight text-white md:text-4xl">
                 Ready when you are
@@ -491,9 +485,17 @@ const LiveInterview = () => {
                   </span>
                 </div>
               )}
+              {/* Interview structure preview */}
+              <div className="mb-4 flex items-center justify-center gap-1 text-white/25 text-[11px] font-heading font-semibold uppercase tracking-wider">
+                {["Opening", "Technical", "Behavioral", "Situational", "Closing"].map((s, i, arr) => (
+                  <span key={s} className="flex items-center gap-1">
+                    <span>{s}</span>
+                    {i < arr.length - 1 && <span className="text-white/15">→</span>}
+                  </span>
+                ))}
+              </div>
               <p className="mx-auto max-w-sm font-body text-sm leading-relaxed text-white/40">
-                This is a real-time voice interview powered by AI. The interviewer adapts to your
-                answers — just like the real thing.
+                A real-time AI voice interview. Hold the mic button or spacebar to speak, release to send.
               </p>
             </div>
 
@@ -503,15 +505,9 @@ const LiveInterview = () => {
               className="group flex items-center gap-3 rounded-full bg-primary px-10 py-4 font-heading text-base font-bold uppercase tracking-wide text-white shadow-lg shadow-primary/25 transition-all hover:bg-primary/90 hover:shadow-xl hover:shadow-primary/30 disabled:opacity-50 disabled:shadow-none"
             >
               {isConnecting ? (
-                <>
-                  <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  Connecting...
-                </>
+                <><span className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" /> Connecting...</>
               ) : (
-                <>
-                  <Sparkles className="h-5 w-5 transition-transform group-hover:scale-110" />
-                  Start Interview
-                </>
+                <><Sparkles className="h-5 w-5 transition-transform group-hover:scale-110" /> Start Interview</>
               )}
             </button>
 
@@ -520,7 +516,7 @@ const LiveInterview = () => {
         ) : (
           /* ─── LIVE INTERVIEW ─── */
           <div className="flex w-full max-w-3xl flex-1 flex-col items-center justify-between gap-4 py-4">
-            {/* AI Orb */}
+            {/* Orb */}
             <div className="flex flex-1 flex-col items-center justify-center gap-3">
               <AIOrb state={orbState} size={200} />
               <p className="font-body text-xs text-white/30">{statusLabel}</p>
@@ -531,46 +527,29 @@ const LiveInterview = () => {
               <div className="w-full max-w-xl animate-fadeUp rounded-2xl border border-primary/20 bg-primary/[0.06] p-5 backdrop-blur-sm">
                 <div className="mb-2 flex items-center gap-2">
                   <VolumeX className="h-4 w-4 text-primary/70" />
-                  <span className="font-heading text-[10px] font-bold uppercase tracking-wider text-primary/70">
-                    Audio unavailable — read below
-                  </span>
+                  <span className="font-heading text-[10px] font-bold uppercase tracking-wider text-primary/70">Audio unavailable — read below</span>
                 </div>
                 <p className="font-body text-sm leading-relaxed text-white/80">{textFallback}</p>
               </div>
             )}
 
-            {/* Live transcript */}
+            {/* Transcript */}
             <div className="w-full max-w-xl">
               <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4 backdrop-blur-sm">
                 <div className="mb-3 flex items-center gap-2">
                   <div className="h-1 w-1 rounded-full bg-accent" />
-                  <span className="font-heading text-[10px] font-bold uppercase tracking-widest text-white/30">
-                    Transcript
-                  </span>
+                  <span className="font-heading text-[10px] font-bold uppercase tracking-widest text-white/30">Transcript</span>
                 </div>
-                <div className="max-h-36 space-y-2 overflow-y-auto scrollbar-thin">
+                <div className="max-h-40 space-y-2 overflow-y-auto">
                   {transcript.length === 0 ? (
-                    <p className="py-4 text-center font-body text-xs text-white/20">
-                      Conversation will appear here...
-                    </p>
+                    <p className="py-4 text-center font-body text-xs text-white/20">Conversation will appear here...</p>
                   ) : (
-                    transcript.slice(-5).map((t, i) => (
-                      <div
-                        key={i}
-                        className={`flex gap-2 ${i === transcript.slice(-5).length - 1 ? "animate-fadeUp" : ""}`}
-                      >
-                        <span
-                          className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] ${
-                            t.role === "ai" ? "bg-primary/20 text-primary" : "bg-accent/20 text-accent"
-                          }`}
-                        >
+                    transcript.slice(-6).map((t, i) => (
+                      <div key={i} className={`flex gap-2 ${i === transcript.slice(-6).length - 1 ? "animate-fadeUp" : ""}`}>
+                        <span className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] ${t.role === "ai" ? "bg-primary/20 text-primary" : "bg-accent/20 text-accent"}`}>
                           {t.role === "ai" ? "AI" : "Y"}
                         </span>
-                        <p
-                          className={`font-body text-sm leading-relaxed ${
-                            t.role === "ai" ? "text-white/70" : "text-white/50"
-                          }`}
-                        >
+                        <p className={`font-body text-sm leading-relaxed ${t.role === "ai" ? "text-white/70" : "text-white/50"}`}>
                           {t.text}
                         </p>
                       </div>
@@ -605,14 +584,11 @@ const LiveInterview = () => {
             }`}
             title="Hold to speak (or hold Space)"
           >
-            {isTranscribing ? (
-              <Loader2 className="h-6 w-6 animate-spin text-white/50" />
-            ) : (
-              <Mic className={`h-6 w-6 ${isPTTActive ? "text-white" : ""}`} />
-            )}
-            {isPTTActive && (
-              <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-accent animate-pulse" />
-            )}
+            {isTranscribing
+              ? <Loader2 className="h-6 w-6 animate-spin text-white/50" />
+              : <Mic className={`h-6 w-6 ${isPTTActive ? "text-white" : ""}`} />
+            }
+            {isPTTActive && <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-accent animate-pulse" />}
           </button>
 
           <button

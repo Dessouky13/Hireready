@@ -3,21 +3,18 @@ import { Check } from "lucide-react";
 
 const plans = [
   {
-    name: "Trial",
-    price: "$3",
-    period: "one-time",
-    credits: "1 interview",
-    features: ["AI interviewer", "Voice input", "Basic report", "1 role"],
-    cta: "Get Started",
-    highlight: false,
-    bg: "bg-card",
-  },
-  {
     name: "Starter",
     price: "$9",
     period: "one-time",
-    credits: "+5 interviews",
-    features: ["Everything in Trial", "All roles", "Full 6D report", "CV upload"],
+    credits: "5 interviews",
+    costPerInterview: "$1.80 / interview",
+    features: [
+      "AI voice interviewer",
+      "CV-aware questions",
+      "5-phase structured interview",
+      "Full 6D performance report",
+      "Whisper speech recognition",
+    ],
     cta: "Buy Starter",
     highlight: false,
     bg: "bg-card",
@@ -26,19 +23,32 @@ const plans = [
     name: "Pro",
     price: "$19",
     period: "one-time",
-    credits: "+15 interviews",
-    features: ["Everything in Starter", "Pressure mode", "Learning roadmap", "Priority support"],
+    credits: "15 interviews",
+    costPerInterview: "$1.27 / interview",
+    features: [
+      "Everything in Starter",
+      "Priority email support",
+      "Shareable score card",
+      "Score history & progress",
+      "Arabic language support",
+    ],
     cta: "Buy Pro",
     highlight: true,
     bg: "bg-primary text-primary-foreground",
   },
   {
-    name: "Scale",
+    name: "Monthly",
     price: "$29",
     period: "/month",
-    credits: "30 interviews / month",
-    features: ["Everything in Pro", "30 interviews every month", "Score history", "Shareable cards"],
-    cta: "Choose Scale",
+    credits: "25 interviews / month",
+    costPerInterview: "$1.16 / interview",
+    features: [
+      "Everything in Pro",
+      "25 fresh interviews every month",
+      "Never run out mid job-search",
+      "Cancel anytime",
+    ],
+    cta: "Go Monthly",
     highlight: false,
     bg: "bg-card",
   },
@@ -51,10 +61,18 @@ const Pricing = () => {
         <h2 className="mb-4 text-center font-heading text-3xl font-extrabold md:text-5xl">
           Simple pricing
         </h2>
-        <p className="mx-auto mb-12 max-w-lg text-center text-muted-foreground">
-          Start with a single interview for just $3. Scale as you grow.
+        <p className="mx-auto mb-3 max-w-lg text-center text-muted-foreground">
+          Pay once, practice as many times as your credits allow.
         </p>
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+
+        {/* Free first interview callout */}
+        <p className="mb-12 text-center">
+          <span className="inline-block rounded-full border-2 border-lime bg-lime/20 px-4 py-1.5 font-heading text-sm font-bold text-foreground">
+            First interview is free when you sign up — no credit card needed
+          </span>
+        </p>
+
+        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {plans.map((p) => (
             <div
               key={p.name}
@@ -70,11 +88,14 @@ const Pricing = () => {
                 <span className="font-heading text-4xl font-extrabold">{p.price}</span>
                 {p.period && <span className="ml-1 text-sm opacity-60">{p.period}</span>}
               </div>
-              <p className="mb-4 text-sm font-semibold opacity-70">{p.credits}</p>
+              <p className="mb-1 text-sm font-bold opacity-80">{p.credits}</p>
+              <p className={`mb-4 text-xs font-semibold ${p.highlight ? "opacity-60" : "text-muted-foreground"}`}>
+                {p.costPerInterview}
+              </p>
               <ul className="mb-6 flex-1 space-y-2">
                 {p.features.map((f) => (
                   <li key={f} className="flex items-center gap-2 text-sm">
-                    <Check className={`h-4 w-4 ${p.highlight ? "text-lime" : "text-primary"}`} />
+                    <Check className={`h-4 w-4 flex-shrink-0 ${p.highlight ? "text-lime" : "text-primary"}`} />
                     {f}
                   </li>
                 ))}

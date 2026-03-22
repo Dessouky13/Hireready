@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, RefreshCw, CheckCircle, AlertTriangle, BookOpen, Loader2, Printer } from "lucide-react";
+import { ArrowLeft, RefreshCw, CheckCircle, AlertTriangle, BookOpen, Loader2, Printer, Map } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ShareResults from "@/components/report/ShareResults";
 import { track, Events } from "@/lib/analytics";
@@ -203,6 +203,9 @@ const Report = () => {
             >
               <Printer className="h-4 w-4" /> Print Report
             </button>
+            <Link to="/roadmap" className="neo-btn bg-background text-foreground">
+              <Map className="h-4 w-4" /> My Roadmap
+            </Link>
             <Link to="/interview/new" className="neo-btn bg-primary text-primary-foreground">
               <RefreshCw className="h-4 w-4" /> Practice Again
             </Link>

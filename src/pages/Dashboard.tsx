@@ -3,7 +3,7 @@ import Logo from "@/components/Logo";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-import { CreditCard, CheckCircle, Trophy, Mic, ArrowRight, Lightbulb } from "lucide-react";
+import { CreditCard, CheckCircle, Trophy, Mic, ArrowRight, Lightbulb, Map } from "lucide-react";
 import DownloadShareCard from "@/components/dashboard/DownloadShareCard";
 import { toast } from "sonner";
 import { track, Events } from "@/lib/analytics";
@@ -105,6 +105,7 @@ const Dashboard = () => {
             <Link to="/dashboard"><Logo /></Link>
             <div className="hidden items-center gap-6 md:flex">
               <Link to="/dashboard" className="font-body text-sm font-semibold text-foreground">Dashboard</Link>
+              <Link to="/roadmap" className="font-body text-sm font-semibold text-muted-foreground hover:text-foreground">My Roadmap</Link>
               <Link to="/interview/new" className="font-body text-sm font-semibold text-muted-foreground hover:text-foreground">New Interview</Link>
             </div>
           </div>
@@ -216,6 +217,23 @@ const Dashboard = () => {
                 {credits === 0 ? "Get More Credits" : "Buy Credits"}
               </Link>
             </div>
+            <Link
+              to="/roadmap"
+              className="neo-card block bg-primary/10 p-6 transition-all hover:-translate-y-0.5 hover:bg-primary/15"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <Map className="h-5 w-5 text-primary" />
+                <h3 className="font-heading text-lg font-bold text-primary">My Roadmap</h3>
+              </div>
+              <p className="mb-3 text-sm text-foreground">
+                {completedInterviews.length > 0
+                  ? "See your skill progress and personalised action plan."
+                  : "Complete your first interview to unlock your roadmap."}
+              </p>
+              <span className="flex items-center gap-1 font-heading text-xs font-bold text-primary">
+                View Roadmap <ArrowRight className="h-3 w-3" />
+              </span>
+            </Link>
             <div className="neo-card bg-success/10 p-6">
               <div className="mb-2 flex items-center gap-2">
                 <Lightbulb className="h-5 w-5 text-success" />

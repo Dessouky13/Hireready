@@ -9,10 +9,12 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Login from "./pages/auth/Login";
 import Signup from "./pages/auth/Signup";
+import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import NewInterview from "./pages/interview/NewInterview";
 import LiveInterview from "./pages/interview/LiveInterview";
 import Report from "./pages/Report";
+import Roadmap from "./pages/Roadmap";
 import Pricing from "./pages/Pricing";
 import NotFound from "./pages/NotFound";
 
@@ -38,10 +40,26 @@ const App = () => (
             <Route path="/auth/login" element={<Login />} />
             <Route path="/auth/signup" element={<Signup />} />
             <Route
+              path="/onboarding"
+              element={
+                <ErrorBoundary>
+                  <ProtectedRoute children={<Onboarding />} />
+                </ErrorBoundary>
+              }
+            />
+            <Route
               path="/dashboard"
               element={
                 <ErrorBoundary>
                   <ProtectedRoute children={<Dashboard />} />
+                </ErrorBoundary>
+              }
+            />
+            <Route
+              path="/roadmap"
+              element={
+                <ErrorBoundary>
+                  <ProtectedRoute children={<Roadmap />} />
                 </ErrorBoundary>
               }
             />

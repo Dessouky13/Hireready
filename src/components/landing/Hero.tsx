@@ -30,12 +30,12 @@ const Hero = () => {
             </span>
           </h1>
           <p className="mb-8 max-w-lg text-lg text-muted-foreground">
-            Practice with a tough AI interviewer that adapts to your role, experience, and CV.
-            Get a detailed performance report after every session.
+            Practice with a tough AI interviewer that adapts to your sector, experience level, and CV.
+            Get a detailed 6-dimension performance report after every session.
           </p>
           <div className="flex flex-wrap gap-4">
             <Link to="/auth/signup" className="neo-btn bg-primary text-primary-foreground text-base">
-              Start for Free
+              Start Free — No Card Needed
             </Link>
             <a href="#how-it-works" className="neo-btn bg-background text-foreground text-base">
               See how it works
@@ -48,7 +48,7 @@ const Hero = () => {
               ))}
             </div>
             <span className="font-body text-sm font-semibold text-muted-foreground">
-              2,400+ students already practicing
+              Join thousands of job seekers practicing daily
             </span>
           </div>
         </div>
@@ -62,28 +62,30 @@ const Hero = () => {
               <span className="font-heading text-xs uppercase text-success">Live Interview</span>
             </div>
 
-            {/* AI message */}
-            <div className="mb-3 max-w-[85%] rounded-2xl rounded-tl-sm bg-foreground/10 p-3 text-sm">
-              <p className="mb-1 font-heading text-[10px] uppercase text-primary">🤖 AI Interviewer</p>
-              Tell me about a project where you led a team under a tight deadline.
+            {/* Phase indicator */}
+            <div className="mb-3 flex gap-1 text-[9px] font-heading font-bold uppercase opacity-40">
+              {["Opening", "Technical", "Behavioral", "Situational", "Closing"].map((p, i) => (
+                <span key={p} className={`${i === 1 ? "text-primary opacity-100" : ""}`}>{i > 0 ? "→ " : ""}{p}</span>
+              ))}
             </div>
 
-            {/* Pressure feedback */}
-            <div className="mb-3 rounded-xl bg-coral/20 px-3 py-2 text-xs font-bold text-coral">
-              🔥 Too vague — give me actual metrics
+            {/* AI message */}
+            <div className="mb-3 max-w-[85%] rounded-2xl rounded-tl-sm bg-foreground/10 p-3 text-sm">
+              <p className="mb-1 font-heading text-[10px] uppercase text-primary">AI Interviewer</p>
+              Your CV mentions a migration project at your last company — walk me through the biggest technical challenge you faced.
             </div>
 
             {/* User message */}
             <div className="mb-4 ml-auto max-w-[80%] rounded-2xl rounded-tr-sm bg-primary p-3 text-sm">
-              I led a 5-person team to ship a feature 2 weeks early, reducing churn by 18%.
+              We had to migrate 3M records with zero downtime, so I designed a dual-write strategy...
             </div>
 
             {/* Score circles */}
             <div className="flex justify-around border-t border-foreground/20 pt-3">
               {[
                 { label: "Comm", score: 82, color: "text-success" },
-                { label: "Tech", score: 71, color: "text-primary" },
-                { label: "Conf", score: 65, color: "text-primary" },
+                { label: "Tech", score: 78, color: "text-primary" },
+                { label: "Conf", score: 71, color: "text-primary" },
               ].map((s) => (
                 <div key={s.label} className="text-center">
                   <div className={`font-heading text-lg font-bold ${s.color}`}>{s.score}</div>
@@ -98,10 +100,10 @@ const Hero = () => {
             🎯 15-min session
           </div>
           <div className="absolute -right-4 top-1/3 animate-float neo-badge bg-background text-foreground text-[11px]" style={{ animationDelay: "1s" }}>
-            📊 Full report
+            📊 Full 6D report
           </div>
           <div className="absolute -left-2 bottom-12 animate-float neo-badge bg-background text-foreground text-[11px]" style={{ animationDelay: "2s" }}>
-            🔥 Pressure mode
+            📄 CV-aware questions
           </div>
         </div>
       </div>

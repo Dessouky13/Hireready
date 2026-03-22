@@ -1,8 +1,28 @@
 const steps = [
-  { num: "01", title: "Upload your CV", desc: "Drop your resume and we'll tailor questions to your experience.", bg: "bg-lime" },
-  { num: "02", title: "Pick your role", desc: "Choose from 10+ roles — software engineer, PM, data scientist, and more.", bg: "bg-primary text-primary-foreground" },
-  { num: "03", title: "15-min AI interview", desc: "A tough but fair AI interviewer pushes you with follow-ups and pressure.", bg: "bg-coral text-coral-foreground" },
-  { num: "04", title: "Get your report", desc: "Scores across 6 dimensions, strengths, weaknesses, and a learning roadmap.", bg: "bg-purple text-purple-foreground" },
+  {
+    num: "01",
+    title: "Upload your CV",
+    desc: "Drop your resume (PDF or Word) and the AI reads it to personalise every question to your real background.",
+    bg: "bg-lime",
+  },
+  {
+    num: "02",
+    title: "Choose your sector",
+    desc: "Pick from 10+ industries — Tech, Finance, Healthcare, Marketing, HR, and more. Or type a custom role.",
+    bg: "bg-primary text-primary-foreground",
+  },
+  {
+    num: "03",
+    title: "15-min AI interview",
+    desc: "A structured 5-phase interview: Opening, Technical, Behavioral, Situational, Closing — just like the real thing.",
+    bg: "bg-coral text-coral-foreground",
+  },
+  {
+    num: "04",
+    title: "Get your report",
+    desc: "Scores across 6 dimensions with specific feedback on what you said well and where to improve.",
+    bg: "bg-purple text-purple-foreground",
+  },
 ];
 
 const HowItWorks = () => {

@@ -21,3 +21,6 @@ verify_jwt = false
 
 [functions.whisper-transcribe]
 verify_jwt = false
+
+[functions.openai-tts]
+verify_jwt = false
