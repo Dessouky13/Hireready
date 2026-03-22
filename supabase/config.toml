@@ -18,3 +18,6 @@ verify_jwt = false
 
 [functions.elevenlabs-scribe-token]
 verify_jwt = false
+
+[functions.whisper-transcribe]
+verify_jwt = false
