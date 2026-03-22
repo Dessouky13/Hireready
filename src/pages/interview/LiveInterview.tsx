@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Mic, MicOff, PhoneOff, VolumeX, Sparkles, ArrowRight } from "lucide-react";
+import { Mic, PhoneOff, VolumeX, Sparkles, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { useScribe, CommitStrategy } from "@elevenlabs/react";
 import { supabase } from "@/integrations/supabase/client";
@@ -15,7 +15,6 @@ const LiveInterview = () => {
   const navigate = useNavigate();
   const { id } = useParams();
   const [isConnecting, setIsConnecting] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const [timeLeft, setTimeLeft] = useState(900);
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -26,15 +25,16 @@ const LiveInterview = () => {
   const [processing, setProcessing] = useState(false);
   const [textFallback, setTextFallback] = useState<string | null>(null);
   const [insufficientCredits, setInsufficientCredits] = useState(false);
+  const [isPTTActive, setIsPTTActive] = useState(false);
 
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const endingRef = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const userSpeechBuffer = useRef("");
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const busyRef = useRef(false); // concurrency guard — prevents overlapping AI turns
+  const busyRef = useRef(false);
+  const isPTTActiveRef = useRef(false);
+  const pttTextRef = useRef(""); // latest partial from scribe while PTT held
 
   useEffect(() => {
     if (!id) return;
@@ -50,28 +50,17 @@ const LiveInterview = () => {
 
   const scribe = useScribe({
     modelId: "scribe_v2_realtime",
-    commitStrategy: CommitStrategy.VAD,
+    commitStrategy: CommitStrategy.MANUAL,
     onPartialTranscript: (data) => {
-      userSpeechBuffer.current = data.text;
+      if (isPTTActiveRef.current) {
+        pttTextRef.current = data.text;
+      }
     },
     onCommittedTranscript: (data) => {
       if (!data.text.trim() || busyRef.current) return;
       const text = data.text.trim();
-
-      // Accumulate speech segments — don't send each one individually
-      userSpeechBuffer.current = userSpeechBuffer.current
-        ? `${userSpeechBuffer.current} ${text}`
-        : text;
-
       setTranscript((prev) => [...prev, { role: "user", text }]);
-
-      // Reset the silence timer — send accumulated speech after 1.5s of silence
-      if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = setTimeout(() => {
-        const accumulated = userSpeechBuffer.current.trim();
-        userSpeechBuffer.current = "";
-        if (accumulated) handleUserTurn(accumulated);
-      }, 1500);
+      handleUserTurn(text);
     },
   });
 
@@ -94,6 +83,31 @@ const LiveInterview = () => {
     return () => clearInterval(timer);
   }, [interviewStarted]);
 
+  // Spacebar PTT listeners
+  useEffect(() => {
+    if (!interviewStarted) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === "Space" && !e.repeat) {
+        e.preventDefault();
+        startPTT();
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === "Space") {
+        e.preventDefault();
+        stopPTT();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [interviewStarted]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const ensureAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
       audioContextRef.current = new AudioContext({ latencyHint: "interactive" });
@@ -106,7 +120,6 @@ const LiveInterview = () => {
 
   const unlockAudio = useCallback(async () => {
     await ensureAudioContext();
-    // Preload browser speech voices for fallback TTS
     if (window.speechSynthesis) {
       window.speechSynthesis.getVoices();
     }
@@ -115,10 +128,9 @@ const LiveInterview = () => {
   const playBrowserTTS = useCallback((text: string): Promise<void> => {
     return new Promise<void>((resolve) => {
       if (!window.speechSynthesis) {
-        resolve(); // gracefully degrade — text fallback will handle it
+        resolve();
         return;
       }
-      // Cancel any pending speech first
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(text);
@@ -126,81 +138,108 @@ const LiveInterview = () => {
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
 
-      // Pick best English voice available
       const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(
-        (v) =>
-          v.lang.startsWith("en") &&
-          (v.name.includes("Google") || v.name.includes("Microsoft") || v.name.includes("Samantha") || v.name.includes("Daniel"))
-      ) || voices.find((v) => v.lang.startsWith("en"));
+      const preferred =
+        voices.find(
+          (v) =>
+            v.lang.startsWith("en") &&
+            (v.name.includes("Google") ||
+              v.name.includes("Microsoft") ||
+              v.name.includes("Samantha") ||
+              v.name.includes("Daniel"))
+        ) || voices.find((v) => v.lang.startsWith("en"));
       if (preferred) utterance.voice = preferred;
 
       utterance.onend = () => resolve();
-      // "interrupted" is expected when we cancel — never reject on it
       utterance.onerror = (e) => {
         if (e.error === "interrupted" || e.error === "canceled") {
           resolve();
         } else {
           console.warn("Browser TTS error:", e.error);
-          resolve(); // still resolve — text fallback handles display
+          resolve();
         }
       };
       window.speechSynthesis.speak(utterance);
     });
   }, []);
 
-  const playTTS = useCallback(async (text: string): Promise<void> => {
-    setAiSpeaking(true);
-    setTextFallback(null);
-
-    // Go straight to browser speech synthesis (ElevenLabs TTS is blocked on free tier from cloud).
-    // This avoids the wasted 2-3s HTTP call that always returns 500.
-    try {
-      await playBrowserTTS(text);
-    } catch {
-      // Browser TTS failed — show text on screen as last resort
-      setTextFallback(text);
-    } finally {
-      setAiSpeaking(false);
-    }
-  }, [playBrowserTTS]);
-
-  const callOrchestrator = useCallback(async (userMessage?: string) => {
-    // Concurrency guard — only one AI turn can run at a time
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setProcessing(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("interview-orchestrator", {
-        body: { interviewId: id, userMessage: userMessage || "" },
-      });
-
-      if (error) {
-        if (error.message?.includes("insufficient_credits") || (error as any)?.context?.status === 402) {
-          setInsufficientCredits(true);
-          toast.error("Insufficient credits. Please buy more to continue.");
-          return;
-        }
-        throw error;
+  const playTTS = useCallback(
+    async (text: string): Promise<void> => {
+      setAiSpeaking(true);
+      setTextFallback(null);
+      try {
+        await playBrowserTTS(text);
+      } catch {
+        setTextFallback(text);
+      } finally {
+        setAiSpeaking(false);
       }
-      if (!data?.next_question) throw new Error("No question returned");
+    },
+    [playBrowserTTS]
+  );
 
-      setCurrentPhase(data.phase || "opening");
-      setQuestionCount(data.question_count || 0);
-      setTranscript((prev) => [...prev, { role: "ai", text: data.next_question }]);
-      await playTTS(data.next_question);
-    } catch (e) {
-      console.error("Orchestrator error:", e);
-      toast.error("Failed to get next question. Please try again.");
-    } finally {
-      setProcessing(false);
-      busyRef.current = false;
-    }
-  }, [id, playTTS]);
+  const callOrchestrator = useCallback(
+    async (userMessage?: string) => {
+      if (busyRef.current) return;
+      busyRef.current = true;
+      setProcessing(true);
+      try {
+        const { data, error } = await supabase.functions.invoke("interview-orchestrator", {
+          body: { interviewId: id, userMessage: userMessage || "" },
+        });
 
-  const handleUserTurn = useCallback(async (text: string) => {
-    await callOrchestrator(text);
-  }, [callOrchestrator]);
+        if (error) {
+          if (
+            error.message?.includes("insufficient_credits") ||
+            (error as any)?.context?.status === 402
+          ) {
+            setInsufficientCredits(true);
+            toast.error("Insufficient credits. Please buy more to continue.");
+            return;
+          }
+          throw error;
+        }
+        if (!data?.next_question) throw new Error("No question returned");
+
+        setCurrentPhase(data.phase || "opening");
+        setQuestionCount(data.question_count || 0);
+        setTranscript((prev) => [...prev, { role: "ai", text: data.next_question }]);
+        await playTTS(data.next_question);
+      } catch (e) {
+        console.error("Orchestrator error:", e);
+        toast.error("Failed to get next question. Please try again.");
+      } finally {
+        setProcessing(false);
+        busyRef.current = false;
+      }
+    },
+    [id, playTTS]
+  );
+
+  const handleUserTurn = useCallback(
+    async (text: string) => {
+      await callOrchestrator(text);
+    },
+    [callOrchestrator]
+  );
+
+  // PTT handlers
+  const startPTT = useCallback(() => {
+    if (busyRef.current || isPTTActiveRef.current) return;
+    // Interrupt AI speech if playing
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    setAiSpeaking(false);
+    isPTTActiveRef.current = true;
+    pttTextRef.current = "";
+    setIsPTTActive(true);
+  }, []);
+
+  const stopPTT = useCallback(() => {
+    if (!isPTTActiveRef.current) return;
+    isPTTActiveRef.current = false;
+    setIsPTTActive(false);
+    scribe.commit(); // fires onCommittedTranscript → handleUserTurn
+  }, [scribe]);
 
   const startConversation = useCallback(async () => {
     setIsConnecting(true);
@@ -239,15 +278,21 @@ const LiveInterview = () => {
     endingRef.current = true;
 
     if (audioSourceRef.current) {
-      try { audioSourceRef.current.stop(); } catch { /* already ended */ }
+      try {
+        audioSourceRef.current.stop();
+      } catch {
+        /* already ended */
+      }
       audioSourceRef.current.disconnect();
       audioSourceRef.current = null;
     }
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
 
     scribe.disconnect();
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
 
     track(Events.INTERVIEW_COMPLETED, { phase: currentPhase, questionCount });
     toast.success("Great work! Processing results...");
@@ -259,7 +304,6 @@ const LiveInterview = () => {
           .update({ status: "completed", ended_at: new Date().toISOString() })
           .eq("id", id);
 
-        // Generate AI report — userId extracted from JWT server-side
         supabase.functions
           .invoke("generate-report", { body: { interviewId: id } })
           .then(({ error: reportErr }) => {
@@ -272,11 +316,6 @@ const LiveInterview = () => {
 
     navigate(`/report/${id || "demo"}`);
   }, [scribe, navigate, id, currentPhase, questionCount]);
-
-  const toggleMute = useCallback(() => {
-    setIsMuted((prev) => !prev);
-    toast.info(isMuted ? "Microphone unmuted" : "Microphone muted");
-  }, [isMuted]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -296,7 +335,8 @@ const LiveInterview = () => {
             </div>
             <h2 className="mb-2 font-heading text-2xl font-bold text-white">Out of Credits</h2>
             <p className="mb-8 font-body text-sm text-white/50">
-              You need at least 1 credit to start an interview. Buy more credits to continue practicing.
+              You need at least 1 credit to start an interview. Buy more credits to continue
+              practicing.
             </p>
             <div className="flex flex-col gap-3">
               <Link
@@ -319,13 +359,15 @@ const LiveInterview = () => {
     );
   }
 
-  // Derive orb state
+  // Orb state
   const orbState: "idle" | "listening" | "thinking" | "speaking" = aiSpeaking
     ? "speaking"
     : processing
     ? "thinking"
-    : interviewStarted
+    : isPTTActive
     ? "listening"
+    : interviewStarted
+    ? "idle"
     : "idle";
 
   return (
@@ -398,8 +440,19 @@ const LiveInterview = () => {
           /* ─── LIVE INTERVIEW ─── */
           <div className="flex w-full max-w-3xl flex-1 flex-col items-center justify-between gap-4 py-4">
             {/* AI Orb — central focus */}
-            <div className="flex flex-1 flex-col items-center justify-center">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3">
               <AIOrb state={orbState} size={200} />
+
+              {/* Status label under orb */}
+              <p className="font-body text-xs text-white/30">
+                {aiSpeaking
+                  ? "Interviewer is speaking..."
+                  : processing
+                  ? "Processing your answer..."
+                  : isPTTActive
+                  ? "Listening — release to send"
+                  : "Hold SPACE or the mic button to speak"}
+              </p>
             </div>
 
             {/* TTS text fallback */}
@@ -467,17 +520,28 @@ const LiveInterview = () => {
       {/* Bottom controls */}
       {interviewStarted && (
         <div className="relative z-10 flex items-center justify-center gap-5 border-t border-white/[0.06] bg-ink/80 py-5 backdrop-blur-xl">
+          {/* PTT button */}
           <button
-            onClick={toggleMute}
-            className={`flex h-14 w-14 items-center justify-center rounded-full transition-all ${
-              isMuted
-                ? "bg-destructive/20 text-destructive ring-2 ring-destructive/30"
-                : "bg-white/[0.06] text-white/70 hover:bg-white/10 hover:text-white"
+            onMouseDown={startPTT}
+            onMouseUp={stopPTT}
+            onTouchStart={(e) => { e.preventDefault(); startPTT(); }}
+            onTouchEnd={(e) => { e.preventDefault(); stopPTT(); }}
+            disabled={processing || aiSpeaking}
+            className={`relative flex h-16 w-16 items-center justify-center rounded-full transition-all select-none ${
+              isPTTActive
+                ? "bg-accent ring-4 ring-accent/40 scale-110 shadow-xl shadow-accent/30"
+                : processing || aiSpeaking
+                ? "bg-white/[0.04] text-white/20 cursor-not-allowed"
+                : "bg-white/[0.08] text-white/70 hover:bg-white/[0.14] hover:text-white hover:shadow-lg"
             }`}
-            title={isMuted ? "Unmute" : "Mute"}
+            title="Hold to speak (or hold Space)"
           >
-            {isMuted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+            <Mic className={`h-6 w-6 ${isPTTActive ? "text-white" : ""}`} />
+            {isPTTActive && (
+              <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-accent animate-pulse" />
+            )}
           </button>
+
           <button
             onClick={handleEndInterview}
             className="flex h-14 w-24 items-center justify-center gap-2 rounded-full bg-destructive text-white font-heading text-xs font-bold uppercase tracking-wider transition-all hover:bg-destructive/90 hover:shadow-lg hover:shadow-destructive/25"

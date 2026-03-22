@@ -7,17 +7,17 @@ import { ArrowLeft, ArrowRight, Check, Upload, AlertCircle, PenLine } from "luci
 import { toast } from "sonner";
 import { track, Events } from "@/lib/analytics";
 
-const roles = [
-  { id: "Software Engineer", label: "Software Engineer", emoji: "💻" },
-  { id: "Frontend Developer", label: "Frontend Developer", emoji: "🎨" },
-  { id: "Data Scientist", label: "Data Scientist", emoji: "📊" },
-  { id: "Product Manager", label: "Product Manager", emoji: "📋" },
-  { id: "UX Designer", label: "UX Designer", emoji: "🎯" },
-  { id: "Marketing Manager", label: "Marketing Manager", emoji: "📣" },
-  { id: "Finance Analyst", label: "Finance Analyst", emoji: "💰" },
-  { id: "DevOps Engineer", label: "DevOps Engineer", emoji: "☁️" },
-  { id: "AI/ML Engineer", label: "AI/ML Engineer", emoji: "🤖" },
-  { id: "Business Analyst", label: "Business Analyst", emoji: "🏢" },
+const sectors = [
+  { id: "Technology & Software", label: "Technology & Software", emoji: "💻" },
+  { id: "Finance & Banking", label: "Finance & Banking", emoji: "💰" },
+  { id: "Healthcare & Medicine", label: "Healthcare & Medicine", emoji: "🏥" },
+  { id: "Marketing & Communications", label: "Marketing & Communications", emoji: "📣" },
+  { id: "Human Resources", label: "Human Resources", emoji: "👥" },
+  { id: "Engineering & Manufacturing", label: "Engineering & Manufacturing", emoji: "⚙️" },
+  { id: "Education & Training", label: "Education & Training", emoji: "📚" },
+  { id: "Retail & E-Commerce", label: "Retail & E-Commerce", emoji: "🛍️" },
+  { id: "Consulting & Strategy", label: "Consulting & Strategy", emoji: "🏢" },
+  { id: "Operations & Supply Chain", label: "Operations & Supply Chain", emoji: "🔄" },
 ];
 
 const levels = [
@@ -41,6 +41,8 @@ const NewInterview = () => {
   const [language, setLanguage] = useState<"en" | "ar">("en");
 
   const effectiveRole = isOtherRole ? customRole.trim() : selectedRole;
+  // alias for clarity in JSX below
+  const roles = sectors;
 
   useEffect(() => {
     if (!user) return;
@@ -96,7 +98,7 @@ const NewInterview = () => {
     navigate(`/interview/${interview.id}`);
   };
 
-  const roleLabel = isOtherRole ? customRole.trim() : roles.find((r) => r.id === selectedRole)?.label;
+  const roleLabel = isOtherRole ? customRole.trim() : sectors.find((r) => r.id === selectedRole)?.label;
   const levelLabel = levels.find((l) => l.id === selectedLevel)?.label;
 
   return (
@@ -131,7 +133,7 @@ const NewInterview = () => {
         {/* Progress bar */}
         <div className="mb-8">
           <div className="mb-2 flex justify-between text-sm font-semibold">
-            <span className={step >= 1 ? "text-primary" : "text-muted-foreground"}>1. Role</span>
+            <span className={step >= 1 ? "text-primary" : "text-muted-foreground"}>1. Sector</span>
             <span className={step >= 2 ? "text-primary" : "text-muted-foreground"}>2. Level</span>
             <span className={step >= 3 ? "text-primary" : "text-muted-foreground"}>3. CV</span>
           </div>
@@ -144,8 +146,8 @@ const NewInterview = () => {
 
         {step === 1 && (
           <div className="animate-fadeUp">
-            <h1 className="mb-2 font-heading text-3xl font-extrabold">Pick your role</h1>
-            <p className="mb-8 text-muted-foreground">Which position are you interviewing for?</p>
+            <h1 className="mb-2 font-heading text-3xl font-extrabold">Pick your sector</h1>
+            <p className="mb-8 text-muted-foreground">Which industry are you targeting?</p>
             <div className="mb-8 grid grid-cols-2 gap-4">
               {roles.map((role) => (
                 <button

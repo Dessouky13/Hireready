@@ -86,10 +86,10 @@ ${arabicSection}
 INTERVIEW METHODOLOGY:
 
 PHASE DESCRIPTIONS:
-1. OPENING (1-2 questions): Start with a WARM, PERSONALIZED welcome. If a CV is provided, reference something specific from it in your greeting (their recent company, a notable project, a key skill). Make the candidate feel like you've actually read their background. Then ask "Tell me about yourself", motivation for this role, or career goals. Be genuinely warm, friendly, and encouraging — like a real interviewer who's excited to meet them.
+1. OPENING (1-2 questions): Begin with a warm professional greeting, then IMMEDIATELY explain the interview format to the candidate before asking any questions. Say something like: "Welcome! Before we dive in, let me walk you through what to expect today. Our interview has 5 sections: first, the Opening where we get to know each other; then Technical questions to explore your domain knowledge; followed by Behavioral questions using real past experiences; then Situational scenarios to see how you think on your feet; and finally a Closing where you can ask me anything. We have about 15 minutes together. Ready to get started? Let's begin — tell me a bit about yourself." If a CV is provided, personalize the greeting by referencing their background (company, project, or skill). Be warm, encouraging, and professional — like a real interviewer who is genuinely excited to meet them.
 2. TECHNICAL (4-6 questions): Role-specific technical/domain questions. Calibrate difficulty to ${level} level. If previous answer scored below 50, ask a simpler follow-up. If above 80, escalate difficulty.
 3. BEHAVIORAL (2-3 questions): Use the STAR method framework. Ask about leadership, conflict resolution, teamwork, failure handling.
-4. SITUATIONAL (1-2 questions): Present hypothetical scenarios relevant to the ${role} role at ${level} level.
+4. SITUATIONAL (1-2 questions): Present hypothetical scenarios relevant to the ${role} sector at ${level} level.
 5. CLOSING (1 question): Wrap up warmly. Ask if the candidate has questions, provide brief encouragement.
 
 ACTIVE LISTENING & CONTEXTUAL FOLLOW-UPS (CRITICAL):
@@ -115,7 +115,7 @@ SCORING RUBRIC (score each answer 0-100):
 - clarity: Clarity of thought and expression
 - impact: Persuasiveness, concrete examples, measurable results
 
-IMPORTANT: You are having a voice conversation. Keep your questions natural, conversational, and concise (2-3 sentences max). Do NOT use bullet points, markdown, or lists in your spoken question. Sound like a real human interviewer — react to what the candidate says, not like you're reading from a script.`;
+IMPORTANT: You are having a voice conversation. Do NOT use bullet points, markdown, or lists. Sound like a real human interviewer. In the OPENING phase only, you may speak at length to properly orient the candidate. In all subsequent phases, keep responses concise (2-4 sentences).`;
 }
 
 serve(async (req) => {
@@ -297,11 +297,20 @@ serve(async (req) => {
 
     if (!userMessage || !userMessage.trim()) {
       const cvHint = state.cv_summary
-        ? `The candidate's CV has been provided in the system prompt. In your greeting, reference 1-2 specific things from their CV (e.g., their most recent company/role, a notable skill, or a standout project) to show you've reviewed their background. Example: "Hi [implied name]! Thanks for joining me today. I've had a chance to look over your background — I see you've been working as a [Role] at [Company], and your experience with [specific tech/project] really caught my eye. I'm excited to learn more about your journey. Let's start with — tell me a bit about yourself and what drew you to this field."`
-        : "No CV was provided, so just give a friendly, warm greeting and ask a general opening question like 'Tell me about yourself'.";
+        ? `The candidate's CV has been provided in the system prompt. In your greeting, reference 1-2 specific things from their CV (e.g., their most recent company/role, a notable skill, or a standout project).`
+        : `No CV was provided — give a general professional greeting.`;
       aiMessages.push({
         role: "user",
-        content: `The interview is starting now. Please greet the candidate warmly and ask your first opening question.\n\nIMPORTANT: ${cvHint}`,
+        content: `The interview is starting now. Do the following in order:
+1. Give a warm, professional welcome greeting.
+2. CLEARLY explain the interview structure: "Our session today covers 5 sections — Opening, Technical, Behavioral, Situational, and Closing — and we have about 15 minutes together."
+3. Briefly explain what each section covers in 1 sentence each.
+4. Tell the candidate they can speak when they are ready, and that they should take their time to answer thoroughly.
+5. Ask your first opening question — "Tell me about yourself" or "What motivated you to apply in the ${interview.role} field?"
+
+${cvHint}
+
+Keep the whole greeting natural and conversational (spoken aloud), no bullet points or markdown.`,
       });
     }
 
@@ -312,7 +321,7 @@ serve(async (req) => {
       `[CANDIDATE]\n${m.content}`
     );
     promptParts.push(`\n[INSTRUCTION]\nRespond ONLY with a valid JSON object (no markdown, no code fences, no extra text). The JSON must have these fields:
-- "next_question" (string): Your next spoken question/response. Keep it natural and conversational (2-3 sentences max).
+- "next_question" (string): Your next spoken question/response. For the opening greeting keep it as long as needed to cover the rules and structure. For all other turns, keep it natural and conversational (2-4 sentences max).
 - "phase" (string): One of ${JSON.stringify(PHASE_ORDER)}. The current or next interview phase.
 - "scores" (object): Scores for the candidate's last answer with keys: comm, tech, conf, struct, clarity, impact (each 0-100 integer). Use empty object {} if this is the first question.
 - "follow_up" (boolean): Whether this is a follow-up probe on the same topic.
