@@ -2,12 +2,38 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Mic, PhoneOff, VolumeX, Sparkles, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
-import { useScribe, CommitStrategy } from "@elevenlabs/react";
 import { supabase } from "@/integrations/supabase/client";
 import AIOrb from "@/components/interview/AIOrb";
 import InterviewTopBar from "@/components/interview/InterviewTopBar";
 import { track, Events } from "@/lib/analytics";
 import { Link } from "react-router-dom";
+
+// Browser SpeechRecognition types
+interface SpeechRecognitionEvent {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+}
+interface SpeechRecognitionErrorEvent {
+  error: string;
+  message?: string;
+}
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start(): void;
+  stop(): void;
+  abort(): void;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+}
+declare global {
+  interface Window {
+    SpeechRecognition: new () => SpeechRecognitionInstance;
+    webkitSpeechRecognition: new () => SpeechRecognitionInstance;
+  }
+}
 
 type TranscriptEntry = { role: "ai" | "user"; text: string };
 
@@ -34,7 +60,8 @@ const LiveInterview = () => {
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const busyRef = useRef(false);
   const isPTTActiveRef = useRef(false);
-  const pttTextRef = useRef(""); // latest partial from scribe while PTT held
+  const pttTextRef = useRef(""); // accumulated transcript while PTT held
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -48,21 +75,57 @@ const LiveInterview = () => {
       });
   }, [id]);
 
-  const scribe = useScribe({
-    modelId: "scribe_v2_realtime",
-    commitStrategy: CommitStrategy.MANUAL,
-    onPartialTranscript: (data) => {
-      if (isPTTActiveRef.current) {
-        pttTextRef.current = data.text;
+  // handleUserTurn ref for use inside SpeechRecognition callbacks
+  const handleUserTurnRef = useRef<(text: string) => Promise<void>>();
+
+  // Initialize browser SpeechRecognition
+  const initRecognition = useCallback(() => {
+    const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      toast.error("Speech recognition is not supported in this browser. Please use Chrome.");
+      return null;
+    }
+    const recognition = new SpeechRecognitionCtor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          // Accumulate final results while PTT is held
+          pttTextRef.current += " " + result[0].transcript;
+        } else {
+          interim = result[0].transcript;
+        }
       }
-    },
-    onCommittedTranscript: (data) => {
-      if (!data.text.trim() || busyRef.current) return;
-      const text = data.text.trim();
-      setTranscript((prev) => [...prev, { role: "user", text }]);
-      handleUserTurn(text);
-    },
-  });
+      // Update partial text for UI feedback (optional)
+      if (isPTTActiveRef.current && interim) {
+        pttTextRef.current = pttTextRef.current || interim;
+      }
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (event.error === "aborted" || event.error === "no-speech") return;
+      console.warn("SpeechRecognition error:", event.error);
+    };
+
+    recognition.onend = () => {
+      // Auto-restart if interview is still going and not PTT-controlled
+      // (recognition can stop randomly due to silence)
+      if (!endingRef.current && recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+        } catch {
+          // already started
+        }
+      }
+    };
+
+    return recognition;
+  }, []);
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -120,8 +183,48 @@ const LiveInterview = () => {
 
   const unlockAudio = useCallback(async () => {
     await ensureAudioContext();
-    if (window.speechSynthesis) {
-      window.speechSynthesis.getVoices();
+  }, [ensureAudioContext]);
+
+  // Play TTS via OpenAI Edge Function — returns MP3 audio
+  const playOpenAITTS = useCallback(async (text: string): Promise<void> => {
+    try {
+      const { data, error } = await supabase.functions.invoke("elevenlabs-tts-stream", {
+        body: { text },
+      });
+
+      if (error) throw error;
+
+      // data is a Blob (audio/mpeg) from the Edge Function
+      const audioCtx = await ensureAudioContext();
+      let arrayBuffer: ArrayBuffer;
+
+      if (data instanceof Blob) {
+        arrayBuffer = await data.arrayBuffer();
+      } else if (data instanceof ArrayBuffer) {
+        arrayBuffer = data;
+      } else {
+        throw new Error("Unexpected TTS response type");
+      }
+
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioCtx.destination);
+
+      // Store ref so we can interrupt later
+      audioSourceRef.current = source;
+
+      return new Promise<void>((resolve) => {
+        source.onended = () => {
+          audioSourceRef.current = null;
+          resolve();
+        };
+        source.start(0);
+      });
+    } catch (e) {
+      console.warn("OpenAI TTS failed, falling back to browser TTS:", e);
+      // Fallback to browser speechSynthesis
+      return playBrowserTTS(text);
     }
   }, [ensureAudioContext]);
 
@@ -168,14 +271,14 @@ const LiveInterview = () => {
       setAiSpeaking(true);
       setTextFallback(null);
       try {
-        await playBrowserTTS(text);
+        await playOpenAITTS(text);
       } catch {
         setTextFallback(text);
       } finally {
         setAiSpeaking(false);
       }
     },
-    [playBrowserTTS]
+    [playOpenAITTS]
   );
 
   const callOrchestrator = useCallback(
@@ -223,10 +326,19 @@ const LiveInterview = () => {
     [callOrchestrator]
   );
 
+  // Keep handleUserTurnRef in sync
+  useEffect(() => {
+    handleUserTurnRef.current = handleUserTurn;
+  }, [handleUserTurn]);
+
   // PTT handlers
   const startPTT = useCallback(() => {
     if (busyRef.current || isPTTActiveRef.current) return;
     // Interrupt AI speech if playing
+    if (audioSourceRef.current) {
+      try { audioSourceRef.current.stop(); } catch { /* already ended */ }
+      audioSourceRef.current = null;
+    }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     setAiSpeaking(false);
     isPTTActiveRef.current = true;
@@ -238,8 +350,15 @@ const LiveInterview = () => {
     if (!isPTTActiveRef.current) return;
     isPTTActiveRef.current = false;
     setIsPTTActive(false);
-    scribe.commit(); // fires onCommittedTranscript → handleUserTurn
-  }, [scribe]);
+
+    // Collect accumulated speech and send
+    const text = pttTextRef.current.trim();
+    pttTextRef.current = "";
+    if (text && !busyRef.current && handleUserTurnRef.current) {
+      setTranscript((prev) => [...prev, { role: "user", text }]);
+      handleUserTurnRef.current(text);
+    }
+  }, []);
 
   const startConversation = useCallback(async () => {
     setIsConnecting(true);
@@ -247,20 +366,19 @@ const LiveInterview = () => {
       await unlockAudio();
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const { data, error } = await supabase.functions.invoke("elevenlabs-scribe-token");
-      if (error || !data?.token) {
-        if (error?.message?.includes("insufficient_credits")) {
-          setInsufficientCredits(true);
-          toast.error("Insufficient credits. Please buy more credits to start.");
-          return;
-        }
-        throw new Error("No scribe token received");
+      // Check credits via the scribe-token endpoint (reuses credit check logic)
+      const { error: creditCheckErr } = await supabase.functions.invoke("elevenlabs-scribe-token");
+      if (creditCheckErr?.message?.includes("insufficient_credits")) {
+        setInsufficientCredits(true);
+        toast.error("Insufficient credits. Please buy more credits to start.");
+        return;
       }
 
-      await scribe.connect({
-        token: data.token,
-        microphone: { echoCancellation: true, noiseSuppression: true },
-      });
+      // Initialize browser SpeechRecognition
+      const recognition = initRecognition();
+      if (!recognition) throw new Error("SpeechRecognition not available");
+      recognitionRef.current = recognition;
+      recognition.start();
 
       setInterviewStarted(true);
       toast.success("Connected! Starting interview...");
@@ -271,7 +389,7 @@ const LiveInterview = () => {
     } finally {
       setIsConnecting(false);
     }
-  }, [scribe, callOrchestrator, unlockAudio]);
+  }, [callOrchestrator, unlockAudio, initRecognition]);
 
   const handleEndInterview = useCallback(async () => {
     if (endingRef.current) return;
@@ -292,7 +410,11 @@ const LiveInterview = () => {
     }
     if (window.speechSynthesis) window.speechSynthesis.cancel();
 
-    scribe.disconnect();
+    // Stop browser SpeechRecognition
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort(); } catch { /* ok */ }
+      recognitionRef.current = null;
+    }
 
     track(Events.INTERVIEW_COMPLETED, { phase: currentPhase, questionCount });
     toast.success("Great work! Processing results...");

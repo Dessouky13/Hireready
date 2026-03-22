@@ -30,7 +30,6 @@ export default defineConfig(({ mode }) => ({
           "vendor-ui": ["@radix-ui/react-dialog", "@radix-ui/react-dropdown-menu", "@radix-ui/react-select"],
           "vendor-query": ["@tanstack/react-query"],
           "vendor-charts": ["recharts"],
-          "vendor-elevenlabs": ["@elevenlabs/react"],
         },
       },
     },

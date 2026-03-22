@@ -17,15 +17,8 @@ function getCorsHeaders(req: Request) {
   };
 }
 
-// Voice IDs
-const VOICE_EN = "JBFqnCBsd6RMkjVDRZzb"; // George — professional male (English)
-const VOICE_AR = "XB0fDUnXU5powFXDhCwa"; // Charlotte — works for Arabic (replace with native Arabic voice when available)
-
-function detectLanguage(text: string): "ar" | "en" {
-  const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
-  const arabicChars = (text.match(arabicPattern) || []).length;
-  return arabicChars / text.length > 0.3 ? "ar" : "en";
-}
+// OpenAI TTS voices — all multilingual
+const VOICE_DEFAULT = "nova"; // warm, professional female
 
 serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -52,45 +45,34 @@ serve(async (req) => {
   }
 
   try {
-    const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
-    if (!ELEVENLABS_API_KEY) throw new Error("ELEVENLABS_API_KEY is not configured");
-    console.log("ElevenLabs key loaded, length:", ELEVENLABS_API_KEY.length, "prefix:", ELEVENLABS_API_KEY.substring(0, 5));
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
+    console.log("OpenAI key loaded, length:", OPENAI_API_KEY.length);
 
-    const { text, voiceId } = await req.json();
+    const { text, voice } = await req.json();
     if (!text) throw new Error("text is required");
 
-    // Auto-detect language if no voiceId provided
-    const lang = detectLanguage(text);
-    const voice = voiceId || (lang === "ar" ? VOICE_AR : VOICE_EN);
+    const selectedVoice = voice || VOICE_DEFAULT;
+    console.log("Calling OpenAI TTS, voice:", selectedVoice, "text length:", text.length);
 
-    const ttsUrl = `https://api.elevenlabs.io/v1/text-to-speech/${voice}/stream?output_format=mp3_44100_128`;
-    console.log("Calling TTS:", ttsUrl, "voice:", voice, "text length:", text.length);
-
-    const response = await fetch(
-      ttsUrl,
-      {
-        method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text,
-          model_id: "eleven_turbo_v2_5",
-          voice_settings: {
-            stability: 0.6,
-            similarity_boost: 0.8,
-            style: 0.3,
-            use_speaker_boost: true,
-            speed: 1.0,
-          },
-        }),
-      }
-    );
+    const response = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "tts-1",
+        input: text,
+        voice: selectedVoice,
+        response_format: "mp3",
+        speed: 1.0,
+      }),
+    });
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("ElevenLabs TTS error:", response.status, errText, "voice:", voice, "model: eleven_turbo_v2_5");
+      console.error("OpenAI TTS error:", response.status, errText);
       throw new Error(`TTS error: ${response.status} - ${errText.substring(0, 200)}`);
     }
 
