@@ -437,7 +437,7 @@ const LiveInterview = () => {
     }
 
     navigate(`/report/${id || "demo"}`);
-  }, [scribe, navigate, id, currentPhase, questionCount]);
+  }, [navigate, id, currentPhase, questionCount]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
