@@ -46,8 +46,8 @@ serve(async (req) => {
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    const FAL_API_KEY = Deno.env.get("FAL_API_KEY");
-    if (!FAL_API_KEY) throw new Error("FAL_API_KEY is not configured");
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) throw new Error("OPENAI_API_KEY is not configured");
 
     const { interviewId } = await req.json();
     if (!interviewId) throw new Error("interviewId is required");
@@ -91,9 +91,10 @@ serve(async (req) => {
       ? `\n\nCANDIDATE CV/RESUME:\n${interviewState.cv_summary}\n\nUse this CV to evaluate whether the candidate's answers align with their stated experience. Note any gaps between what the CV claims and how the candidate performed.`
       : "";
 
-    // Call Google AI via FAL — use prompt-based JSON approach (FAL doesn't support tool calling)
-    const prompt = `[SYSTEM]
-You are a world-class interview coach and career advisor providing a comprehensive performance report. The candidate just completed a mock interview for a ${interview.level} ${interview.role} position. Your job is to deliver MAXIMUM VALUE — be specific, cite exact quotes from the transcript, and give actionable advice they can use TODAY.
+    // Call OpenAI GPT-4o-mini with JSON mode for reliable structured output
+    const systemPrompt = `You are a world-class interview coach and career advisor providing a comprehensive performance report. Your job is to deliver MAXIMUM VALUE — be specific, cite exact quotes from the transcript, and give actionable advice they can use TODAY.`;
+
+    const userPrompt = `The candidate just completed a mock interview for a ${interview.level} ${interview.role} position.
 ${cvContext}
 
 [TRANSCRIPT]
@@ -102,7 +103,7 @@ ${transcriptText}
 [INSTRUCTION]
 Analyze every single answer in this transcript. For each scoring dimension, reference specific moments from the interview. Be brutally honest but constructive.
 
-Respond ONLY with a valid JSON object (no markdown, no code fences, no extra text). The JSON must have these exact fields:
+Respond ONLY with a valid JSON object. The JSON must have these exact fields:
 
 - "overall_score" (integer 0-100): Weighted overall score. Be calibrated: 90+ is exceptional (top 5%), 70-89 is good, 50-69 needs work, below 50 is poor.
 
@@ -120,41 +121,42 @@ Respond ONLY with a valid JSON object (no markdown, no code fences, no extra tex
 
 - "strengths" (array of 3-5 objects, each with "title" and "detail"):
   - "title": Short strength label (e.g., "Strong Technical Foundation")
-  - "detail": 2-3 sentences explaining this strength with a SPECIFIC example or quote from the interview. E.g., "When asked about system design, the candidate gave a thorough answer about microservices architecture, mentioning specific trade-offs like 'we chose event-driven because our write volume was 10x reads.' This shows real-world depth."
+  - "detail": 2-3 sentences explaining this strength with a SPECIFIC example or quote from the interview.
 
 - "weaknesses" (array of 3-5 objects, each with "title" and "detail" and "how_to_fix"):
   - "title": Short weakness label (e.g., "Vague on Metrics")
   - "detail": 2-3 sentences explaining the weakness with a specific example from the interview
-  - "how_to_fix": One concrete, actionable tip to fix this. E.g., "Before your next interview, prepare 3 stories where you can cite exact numbers: percentage improvements, team sizes, revenue impact, or time saved."
+  - "how_to_fix": One concrete, actionable tip to fix this.
 
-- "feedback_text" (string): A thorough 5-8 sentence overall assessment. Start with what they did well. Then address the biggest improvement area. End with encouragement and a specific next step. Write as if you're a senior mentor giving candid but supportive feedback to a colleague. Reference specific moments from the interview.
+- "feedback_text" (string): A thorough 5-8 sentence overall assessment. Start with what they did well. Then address the biggest improvement area. End with encouragement and a specific next step. Write as if you're a senior mentor giving candid but supportive feedback.
 
-- "roadmap" (array of 4-6 objects): A personalized learning plan based on their ACTUAL weaknesses (not generic advice). Each with:
+- "roadmap" (array of 4-6 objects): A personalized learning plan based on their ACTUAL weaknesses. Each with:
   - "title": Action item title (e.g., "Master the STAR Method")
-  - "desc": 2-3 sentences explaining WHY this matters for them specifically and HOW to practice it. Reference their interview performance.
-  - "resource": A specific, real resource — e.g., "Book: 'Cracking the Coding Interview' by Gayle McDowell" or "Course: 'System Design Interview' on educative.io" or "YouTube: 'Interview tips by Jeff Su'" or "Practice: Do 5 mock behavioral questions using STAR format this week". Make these REAL and USEFUL, not generic links.
+  - "desc": 2-3 sentences explaining WHY this matters for them specifically and HOW to practice it.
+  - "resource": A specific, real resource — e.g., "Book: 'Cracking the Coding Interview' by Gayle McDowell" or "YouTube: 'Interview tips by Jeff Su'" or "Practice: Do 5 mock behavioral questions using STAR format this week".
 
 QUALITY RULES:
 - Every strength and weakness MUST reference something specific the candidate actually said or did
 - Scores must be calibrated to real interview standards — don't inflate
 - Roadmap items must be personalized to THIS candidate's gaps, not generic advice
-- feedback_text should feel like advice from a mentor who watched the whole interview
 - If a CV was provided, note whether the candidate's performance matched their CV claims`;
 
-    const aiResponse = await fetch(
-      "https://fal.run/fal-ai/any-llm",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Key ${FAL_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
-          prompt: prompt,
-        }),
-      }
-    );
+    const aiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.7,
+      }),
+    });
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {
@@ -163,28 +165,13 @@ QUALITY RULES:
         });
       }
       const errText = await aiResponse.text();
-      console.error("FAL AI error:", aiResponse.status, errText);
+      console.error("OpenAI error:", aiResponse.status, errText);
       throw new Error(`AI error: ${aiResponse.status}`);
     }
 
     const aiResult = await aiResponse.json();
-    let rawOutput = (aiResult.output || "").trim();
+    const rawOutput = aiResult.choices?.[0]?.message?.content || "";
     console.log("Raw AI output length:", rawOutput.length, "first 200 chars:", rawOutput.substring(0, 200));
-    
-    // Robust JSON extraction — handle code fences, surrounding text, etc.
-    // Try stripping markdown code fences
-    const fenceMatch = rawOutput.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (fenceMatch) {
-      rawOutput = fenceMatch[1].trim();
-    }
-    // If still not starting with {, try to find the JSON object
-    if (!rawOutput.startsWith("{")) {
-      const jsonStart = rawOutput.indexOf("{");
-      const jsonEnd = rawOutput.lastIndexOf("}");
-      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-        rawOutput = rawOutput.substring(jsonStart, jsonEnd + 1);
-      }
-    }
 
     let reportData;
     try {
