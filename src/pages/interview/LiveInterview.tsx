@@ -188,23 +188,31 @@ const LiveInterview = () => {
   // Play TTS via OpenAI Edge Function — returns MP3 audio
   const playOpenAITTS = useCallback(async (text: string): Promise<void> => {
     try {
-      const { data, error } = await supabase.functions.invoke("elevenlabs-tts-stream", {
-        body: { text },
-      });
+      // Use fetch directly (not supabase.functions.invoke) to get binary audio
+      const session = await supabase.auth.getSession();
+      const token = session.data.session?.access_token;
+      if (!token) throw new Error("No auth token");
 
-      if (error) throw error;
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/elevenlabs-tts-stream`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ text }),
+        }
+      );
 
-      // data is a Blob (audio/mpeg) from the Edge Function
-      const audioCtx = await ensureAudioContext();
-      let arrayBuffer: ArrayBuffer;
-
-      if (data instanceof Blob) {
-        arrayBuffer = await data.arrayBuffer();
-      } else if (data instanceof ArrayBuffer) {
-        arrayBuffer = data;
-      } else {
-        throw new Error("Unexpected TTS response type");
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`TTS returned ${res.status}: ${errText}`);
       }
+
+      const arrayBuffer = await res.arrayBuffer();
+      const audioCtx = await ensureAudioContext();
 
       const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       const source = audioCtx.createBufferSource();
