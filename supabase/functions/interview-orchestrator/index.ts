@@ -68,7 +68,19 @@ ACTIVE LISTENING (critical): Always reference what the candidate just said. Pick
 
 SCORING (per answer, 0-100): comm, tech, conf, struct, clarity, impact
 
-OUTPUT RULES: You are speaking aloud. No bullet points, no markdown, no lists. Keep answers to 2-3 sentences maximum EXCEPT the opening greeting. Sound like a warm, professional human interviewer.`;
+OUTPUT FORMAT: You MUST respond with a valid JSON object with these exact keys:
+{
+  "next_question": "Your spoken response and next question as a single natural sentence or two",
+  "phase": "${phase}",
+  "scores": { "comm": 0, "tech": 0, "conf": 0, "struct": 0, "clarity": 0, "impact": 0 },
+  "follow_up": false,
+  "topic": "brief topic label"
+}
+- "next_question": What you say aloud. Keep it natural, 2-3 sentences max. No bullet points or markdown.
+- "phase": Current interview phase (opening/technical/behavioral/situational/closing).
+- "scores": Score each dimension 0-100 based on the candidate's last answer. Use 0 for all scores on the very first turn.
+- "follow_up": true if this is a follow-up on the same topic, false if moving to a new topic.
+- "topic": Brief label for the topic being discussed (e.g. "React experience", "team conflict").`;
 }
 
 serve(async (req) => {
