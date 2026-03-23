@@ -57,7 +57,12 @@ const Signup = () => {
     }
 
     // Destroy any existing session to prevent data leaking between accounts
-    await supabase.auth.signOut();
+    try {
+      const { data: { session: existing } } = await supabase.auth.getSession();
+      if (existing) await supabase.auth.signOut();
+    } catch (_) {
+      // Ignore signOut errors — proceed with signup
+    }
 
     const { data: authData, error } = await supabase.auth.signUp({
       email,
