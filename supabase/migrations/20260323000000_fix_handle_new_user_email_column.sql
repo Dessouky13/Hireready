@@ -1,8 +1,7 @@
--- Fix: new users should get 1 free credit, not 0
--- The migration 20260316231657 accidentally set credits to 0 on new user trigger.
--- This migration restores the correct default and backfills existing users.
+-- Fix: handle_new_user was inserting into non-existent 'email' column on profiles.
+-- The profiles table has (id, full_name, avatar_url, ...) — no email column.
+-- This caused signup to 500 because the trigger crashed.
 
--- 1. Restore handle_new_user trigger to give 1 credit
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -25,8 +24,3 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-
--- 2. Backfill: give 1 credit to any existing users who have 0
-UPDATE public.credits
-SET balance = 1
-WHERE balance = 0;
