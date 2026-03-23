@@ -51,6 +51,7 @@ serve(async (req) => {
 
     const { text, voice } = await req.json();
     if (!text) throw new Error("text is required");
+    if (text.length > 2000) throw new Error("text exceeds 2000 character limit");
 
     const selectedVoice = voice || VOICE_DEFAULT;
     console.log("Calling OpenAI TTS, voice:", selectedVoice, "text length:", text.length);

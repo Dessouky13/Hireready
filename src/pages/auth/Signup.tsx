@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Logo from "@/components/Logo";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const GoogleIcon = () => (
   <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -17,8 +18,14 @@ const GoogleIcon = () => (
 
 const Signup = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+
+  // Redirect authenticated users away from signup
+  useEffect(() => {
+    if (user) navigate("/dashboard", { replace: true });
+  }, [user, navigate]);
   const [password, setPassword] = useState("");
   const [promoCode, setPromoCode] = useState("");
   const [loading, setLoading] = useState(false);
@@ -49,6 +56,9 @@ const Signup = () => {
       }
     }
 
+    // Destroy any existing session to prevent data leaking between accounts
+    await supabase.auth.signOut();
+
     const { data: authData, error } = await supabase.auth.signUp({
       email,
       password,
@@ -61,6 +71,11 @@ const Signup = () => {
 
     if (error) {
       toast.error(error.message);
+      return;
+    }
+
+    if (!authData.session) {
+      toast.info("Check your email to confirm your account.");
       return;
     }
 
@@ -85,7 +100,7 @@ const Signup = () => {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: `${window.location.origin}/onboarding`,
       },
     });
     if (error) toast.error(error.message);
@@ -150,7 +165,7 @@ const Signup = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={6}
+              minLength={8}
               className="mt-1 border-2 border-ink"
             />
           </div>

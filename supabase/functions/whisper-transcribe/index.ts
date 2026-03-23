@@ -50,13 +50,18 @@ serve(async (req) => {
     const audioFile = formData.get("audio") as File | null;
     if (!audioFile) throw new Error("No audio file provided");
 
+    // Reject files larger than 25 MB (OpenAI Whisper limit)
+    if (audioFile.size > 25 * 1024 * 1024) throw new Error("Audio file exceeds 25 MB limit");
+
+    const language = (formData.get("language") as string) || "en";
+
     console.log("Received audio file:", audioFile.name, "size:", audioFile.size, "type:", audioFile.type);
 
     // Forward to OpenAI Whisper
     const whisperForm = new FormData();
     whisperForm.append("file", audioFile, audioFile.name || "recording.webm");
     whisperForm.append("model", "whisper-1");
-    whisperForm.append("language", "en"); // Force English — improves accuracy for non-native speakers
+    whisperForm.append("language", language); // Accept from client — supports en, ar, etc.
     whisperForm.append("temperature", "0"); // Deterministic output
     // Prompt helps Whisper understand context and correct domain-specific words
     whisperForm.append(

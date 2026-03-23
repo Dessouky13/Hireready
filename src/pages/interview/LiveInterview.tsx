@@ -21,7 +21,7 @@ const LiveInterview = () => {
   const [timeLeft, setTimeLeft] = useState(900);
   const [interviewStarted, setInterviewStarted] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [interviewData, setInterviewData] = useState<{ role: string; level: string } | null>(null);
+  const [interviewData, setInterviewData] = useState<{ role: string; level: string; language?: string } | null>(null);
   const [currentPhase, setCurrentPhase] = useState("opening");
   const [questionCount, setQuestionCount] = useState(0);
   const [aiSpeaking, setAiSpeaking] = useState(false);
@@ -48,7 +48,7 @@ const LiveInterview = () => {
     if (!id) return;
     supabase
       .from("interviews")
-      .select("role, level")
+      .select("role, level, language")
       .eq("id", id)
       .single()
       .then(({ data }) => { if (data) setInterviewData(data); });
@@ -294,6 +294,7 @@ const LiveInterview = () => {
         const ext = mimeType.includes("ogg") ? "ogg" : "webm";
         const formData = new FormData();
         formData.append("audio", blob, `recording.${ext}`);
+        formData.append("language", interviewData?.language || "en");
 
         const res = await fetch(`${SUPABASE_URL}/functions/v1/whisper-transcribe`, {
           method: "POST",

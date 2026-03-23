@@ -4,6 +4,7 @@ import { ArrowLeft, RefreshCw, CheckCircle, AlertTriangle, BookOpen, Loader2, Pr
 import { supabase } from "@/integrations/supabase/client";
 import ShareResults from "@/components/report/ShareResults";
 import { track, Events } from "@/lib/analytics";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface RoadmapItem {
   title: string;
@@ -82,13 +83,14 @@ const scoreEmojis: Record<string, string> = {
 
 const Report = () => {
   const { id } = useParams();
+  const { user } = useAuth();
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchReport = async () => {
-      if (!id) {
+      if (!id || !user) {
         setError("No interview ID provided");
         setLoading(false);
         return;
@@ -103,6 +105,7 @@ const Report = () => {
           .from("reports")
           .select("*, interviews:interview_id(role, level)")
           .eq("interview_id", id)
+          .eq("user_id", user.id)
           .maybeSingle();
 
         if (fetchErr) {
@@ -149,7 +152,7 @@ const Report = () => {
     };
 
     fetchReport();
-  }, [id]);
+  }, [id, user]);
 
   if (loading) {
     return (

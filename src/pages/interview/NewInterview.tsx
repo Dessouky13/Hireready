@@ -238,7 +238,15 @@ const NewInterview = () => {
                 cvFile ? "border-success bg-success/10" : "border-ink bg-card hover:bg-muted"
               }`}
             >
-              <input type="file" accept=".pdf,.doc,.docx" className="hidden" onChange={(e) => setCvFile(e.target.files?.[0] || null)} />
+              <input type="file" accept=".pdf" className="hidden" onChange={(e) => {
+                const file = e.target.files?.[0] || null;
+                if (file && file.size > 5 * 1024 * 1024) {
+                  toast.error("CV must be under 5 MB");
+                  e.target.value = "";
+                  return;
+                }
+                setCvFile(file);
+              }} />
               {cvFile ? (
                 <>
                   <Check className="mb-2 h-10 w-10 text-success" />
@@ -249,7 +257,7 @@ const NewInterview = () => {
                 <>
                   <Upload className="mb-2 h-10 w-10 text-muted-foreground" />
                   <span className="font-heading font-bold">Click to upload your CV</span>
-                  <span className="text-sm text-muted-foreground">PDF, DOC, or DOCX (max 5MB)</span>
+                  <span className="text-sm text-muted-foreground">PDF only (max 5 MB)</span>
                 </>
               )}
             </label>

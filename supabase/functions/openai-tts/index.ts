@@ -39,6 +39,7 @@ serve(async (req) => {
 
     const { text, voice = "nova" } = await req.json();
     if (!text) throw new Error("text is required");
+    if (text.length > 2000) throw new Error("text exceeds 2000 character limit");
 
     const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",

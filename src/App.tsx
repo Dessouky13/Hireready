@@ -30,12 +30,12 @@ const queryClient = new QueryClient({
   },
 });
 
-// Clears all cached queries when the user signs out — prevents data leaking between sessions
+// Clears all cached queries on auth transitions — prevents data leaking between sessions
 const AuthQuerySync = () => {
   const queryClient = useQueryClient();
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_OUT") {
+      if (event === "SIGNED_OUT" || event === "SIGNED_IN") {
         queryClient.clear();
       }
     });
